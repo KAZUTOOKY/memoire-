@@ -39,7 +39,13 @@ export async function GET(req: NextRequest) {
     include: { filieres: { include: { filiere: true } } },
   });
 
+  const filieres = await db.filiere.findMany({
+    include: { metiers: { include: { metier: true } } },
+  });
+
   const recos = recommander(profil, metiers, { limite: 5 });
+  // Recommandations de filières compatibles (même algo)
+  const recosFilieres = recommander(profil, filieres, { limite: 4 });
 
   // Persister si une sessionId est fournie
   let sessionIdFinal = sessionId;
@@ -71,6 +77,19 @@ export async function GET(req: NextRequest) {
         secteurActivite: r.cible.secteurActivite,
         salaireMoyen: r.cible.salaireMoyen,
         niveauMinimum: r.cible.niveauMinimum,
+        description: r.cible.description,
+      },
+      scoreCompatibilite: r.scoreCompatibilite,
+      justification: r.justification,
+    })),
+    recommandationsFilieres: recosFilieres.map((r) => ({
+      filiere: {
+        id: r.cible.id,
+        nom: r.cible.nom,
+        duree: r.cible.duree,
+        conditionsAcces: r.cible.conditionsAcces,
+        etablissementsDisponibles: r.cible.etablissementsDisponibles,
+        debouchesText: r.cible.debouchesText,
         description: r.cible.description,
       },
       scoreCompatibilite: r.scoreCompatibilite,

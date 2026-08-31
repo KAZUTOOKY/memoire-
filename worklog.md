@@ -165,3 +165,21 @@ Recommandations round 2 (priorités) :
 3. **Statistiques d'orientation** : petite carte dans la sidebar montrant nb sessions, nb questions, profil dominant.
 4. **Suggestions de filières proches** : si l'utilisateur a un profil RIASEC, suggérer les filières les plus compatibles (pas seulement les métiers).
 5. **Améliorer le rendu mobile du compare dialog** (tableau scrollable horizontalement).
+
+---
+Task ID: 13
+Agent: cron-review (round 2 — QA + planification)
+Task: QA round 2 + planification nouvelles features.
+
+Work Log:
+- Revue du worklog : round 1 terminé (radar SVG, stepper, comparateur, export PDF, nouvelle conversation, reset profil, quick-reply chips, NLU fallback corrigé).
+- QA agent-browser : serveur stable, 0 erreur console, 0 warning. Fresh onboarding OK. Profil (Licence 1 + Abidjan) OK. Test RIASEC 30 TAF → radar + dialog résultats OK. Recommandations 5 métiers OK.
+- Aucune régression détectée.
+
+Plan d'action round 2 (features + styling) :
+1. **Historique des sessions** : dialog listant les sessions passées avec leur contenu (interactions + recommandations).
+2. **Statistiques d'orientation** : carte dans la sidebar montrant nb sessions, nb questions, profil dominant, score moyen.
+3. **Suggestions de filières compatibles** : étendre le moteur de recommandation pour proposer aussi des filières (pas seulement des métiers).
+4. **Recherche globale** : barre de recherche dans le chat (filtre messages/filieres/métiers).
+5. **Polish styling** : animations de transition entre messages, badge "nouveau" sur les recommandations, footer enrichi avec stats.
+6. **Glossaire RIASEC** : dialog expliquant les 6 dimensions avec exemples de métiers types.

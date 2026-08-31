@@ -26,6 +26,8 @@ import {
   FileDown,
   Trophy,
   MessageCircle,
+  History,
+  BookMarked,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -35,10 +37,14 @@ import { RiasecTestDialog } from "./RiasecTestDialog";
 import { RiasecResultDialog } from "./RiasecResultDialog";
 import { CounselorDialog } from "./CounselorDialog";
 import { RecommendationsCard } from "./RecommendationsCard";
+import { FiliereRecommendationsCard } from "./FiliereRecommendationsCard";
 import { ProfileSummary } from "./ProfileSummary";
 import { OnboardingStepper, calculerEtape } from "./OnboardingStepper";
 import { CompareFilieresDialog } from "./CompareFilieresDialog";
 import { ExportRecommandationsDialog } from "./ExportRecommandationsDialog";
+import { SessionHistoryDialog } from "./SessionHistoryDialog";
+import { StatsCard } from "./StatsCard";
+import { RiasecGlossaryDialog } from "./RiasecGlossaryDialog";
 import {
   RIASEC_DIMENSIONS,
   RIASEC_ORDER,
@@ -52,6 +58,7 @@ import type {
   Filiere,
   Metier,
   RiasecRecoAffichage,
+  FiliereRecoAffichage,
 } from "@/lib/orientation/types";
 
 interface TestResult {
@@ -98,11 +105,15 @@ export function ChatInterface() {
   const [showResult, setShowResult] = useState(false);
   const [showCompare, setShowCompare] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showGlossary, setShowGlossary] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [lastTestResult, setLastTestResult] = useState<TestResult | null>(null);
   const [lastRecommandations, setLastRecommandations] = useState<RiasecRecoAffichage[]>([]);
+  const [lastRecommandationsFilieres, setLastRecommandationsFilieres] = useState<FiliereRecoAffichage[]>([]);
   const [lastDominantLabel, setLastDominantLabel] = useState<string | undefined>(undefined);
+  const [statsKey, setStatsKey] = useState(0); // pour rafraîchir la StatsCard
   const { theme, setTheme } = useTheme();
   const [dark, setDark] = useState(false);
 
@@ -271,6 +282,7 @@ export function ChatInterface() {
       // Rafraîchir l'utilisateur (scores éventuels)
       const ur = await fetch(`/api/orientation/users?id=${utilisateur.id}`);
       if (ur.ok) setUtilisateur(await ur.json());
+      setStatsKey((k) => k + 1); // rafraîchir les stats
     } catch {
       toast.error("Le message n'a pas pu être envoyé.");
     } finally {
@@ -291,6 +303,12 @@ export function ChatInterface() {
         break;
       case "proposer_recommandations":
         // déjà affiché inline ; on ne fait rien de plus
+        break;
+      case "afficher_historique":
+        setShowHistory(true);
+        break;
+      case "afficher_glossaire":
+        setShowGlossary(true);
         break;
       case "suggestion": {
         const msg = (action.donnees?.message as string) || action.texte;
@@ -323,20 +341,33 @@ export function ChatInterface() {
         secteur: r.metier.secteurActivite,
         salaire: r.metier.salaireMoyen,
       }));
+      const recosFilieres: FiliereRecoAffichage[] = (data.recommandationsFilieres || []).map((r: { filiere: { id: string; nom: string; duree?: string | null; etablissementsDisponibles?: string | null; debouchesText?: string | null }; scoreCompatibilite: number; justification: string }) => ({
+        filiereId: r.filiere.id,
+        nom: r.filiere.nom,
+        score: r.scoreCompatibilite,
+        justification: r.justification,
+        duree: r.filiere.duree,
+        etablissements: r.filiere.etablissementsDisponibles
+          ? r.filiere.etablissementsDisponibles.split("|").map((s: string) => s.trim()).filter(Boolean)
+          : [],
+        debouches: r.filiere.debouchesText,
+      }));
       setLastRecommandations(recos);
+      setLastRecommandationsFilieres(recosFilieres);
       setLastDominantLabel(data.dominantLabel);
+      setStatsKey((k) => k + 1); // rafraîchir les stats
       const botMsg: ChatMessage = {
         id: uid(),
         role: "bot",
         content:
-          `🎯 Voici vos **${recos.length} recommandations** (profil dominant : **${data.dominantLabel}**). Cliquez sur un métier pour en savoir plus.`,
+          `🎯 Voici vos **${recos.length} métiers recommandés** + **${recosFilieres.length} filières compatibles** (profil dominant : **${data.dominantLabel}**). Cliquez sur un métier ou une filière pour en savoir plus.`,
         timestamp: new Date().toISOString(),
         intention: "demande_recommandation",
         actions: [
           {
             type: "proposer_recommandations",
             texte: "",
-            donnees: { recommandations: recos, dominant: data.dominant },
+            donnees: { recommandations: recos, recommandationsFilieres: recosFilieres, dominant: data.dominant },
           },
         ],
       };
@@ -487,9 +518,11 @@ export function ChatInterface() {
           actions: [
             { type: "suggestion", texte: "Voir mon profil", donnees: { message: "Montrez-moi mon profil" } },
             { type: "suggestion", texte: "Mes recommandations", donnees: { message: "Donnez-moi des recommandations personnalisées" } },
+            { type: "suggestion", texte: "Voir l'historique", donnees: { message: "Je veux voir mon historique" } },
           ],
         },
       ]);
+      setStatsKey((k) => k + 1);
       toast.success("Nouvelle conversation démarrée.");
     } catch {
       toast.error("Impossible de démarrer une nouvelle conversation.");
@@ -517,7 +550,9 @@ export function ChatInterface() {
       setSession(data.session);
       setLastTestResult(null);
       setLastRecommandations([]);
+      setLastRecommandationsFilieres([]);
       setLastDominantLabel(undefined);
+      setStatsKey((k) => k + 1);
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({ utilisateurId: data.utilisateur.id, sessionId: data.session.id })
@@ -546,6 +581,8 @@ export function ChatInterface() {
     { label: "Passer le test RIASEC", icon: Compass, action: () => setShowTest(true), color: "text-accent-foreground" },
     { label: "Mes recommandations", icon: Sparkles, action: demanderRecommandations, color: "text-primary" },
     { label: "Comparer les filières", icon: GitCompareArrows, action: () => setShowCompare(true), color: "text-foreground" },
+    { label: "Glossaire RIASEC", icon: BookMarked, action: () => setShowGlossary(true), color: "text-foreground" },
+    { label: "Historique", icon: History, action: () => setShowHistory(true), color: "text-foreground" },
     { label: "Liste des filières", icon: School, action: () => envoyerMessage("Quelles filières proposez-vous ?"), color: "text-foreground" },
     { label: "Liste des métiers", icon: Briefcase, action: () => envoyerMessage("Quels métiers proposez-vous ?"), color: "text-foreground" },
     { label: "Conseiller humain", icon: HeartHandshake, action: () => setShowCounselor(true), color: "text-destructive" },
@@ -648,6 +685,16 @@ export function ChatInterface() {
                 onConseiller={() => { setShowCounselor(true); setSidebarOpen(false); }}
                 onReset={reinitialiserProfil}
               />
+            )}
+
+            {/* Carte statistiques */}
+            {utilisateur && (
+              <div key={`stats-${statsKey}`} className="mt-3">
+                <StatsCard
+                  utilisateurId={utilisateur.id}
+                  onVoirHistorique={() => setShowHistory(true)}
+                />
+              </div>
             )}
 
             <Card className="mt-3 border-primary/20 hidden lg:block">
@@ -831,6 +878,19 @@ export function ChatInterface() {
         recommandations={lastRecommandations}
         dominantLabel={lastDominantLabel}
       />
+
+      {/* Dialog: historique des sessions */}
+      <SessionHistoryDialog
+        open={showHistory}
+        onOpenChange={setShowHistory}
+        utilisateurId={utilisateur?.id}
+      />
+
+      {/* Dialog: glossaire RIASEC */}
+      <RiasecGlossaryDialog
+        open={showGlossary}
+        onOpenChange={setShowGlossary}
+      />
     </div>
   );
 }
@@ -929,6 +989,7 @@ function ActionRenderer({
       {autres.map((a, i) => {
         if (a.type === "proposer_recommandations") {
           const recos = (a.donnees?.recommandations as RiasecRecoAffichage[] | undefined);
+          const recosFilieres = (a.donnees?.recommandationsFilieres as FiliereRecoAffichage[] | undefined);
           const dominant = a.donnees?.dominant as RiasecDimension | undefined;
           if (!recos) {
             // Bouton déclencheur
@@ -939,12 +1000,18 @@ function ActionRenderer({
             );
           }
           return (
-            <div key={i} className="w-full max-w-md">
+            <div key={i} className="w-full max-w-md space-y-2">
               <RecommendationsCard
                 recommandations={recos}
                 dominantLabel={dominant ? RIASEC_DIMENSIONS[dominant].label : undefined}
                 onVoirMetier={onVoirMetier}
               />
+              {recosFilieres && recosFilieres.length > 0 && (
+                <FiliereRecommendationsCard
+                  recommandations={recosFilieres}
+                  onVoirFiliere={onVoirFiliere}
+                />
+              )}
             </div>
           );
         }
@@ -1069,6 +1136,8 @@ function defaultLabel(type: DialogueAction["type"]): string {
     case "proposer_test": return "Passer le test RIASEC";
     case "demarrer_profil": return "Créer mon profil";
     case "redirection_conseiller": return "Parler à un conseiller";
+    case "afficher_historique": return "Ouvrir l'historique";
+    case "afficher_glossaire": return "Ouvrir le glossaire";
     default: return "OK";
   }
 }
@@ -1078,6 +1147,8 @@ function iconFor(type: DialogueAction["type"]): React.ReactNode {
     case "proposer_test": return <Compass className="h-3.5 w-3.5 mr-1" />;
     case "demarrer_profil": return <ClipboardList className="h-3.5 w-3.5 mr-1" />;
     case "redirection_conseiller": return <HeartHandshake className="h-3.5 w-3.5 mr-1" />;
+    case "afficher_historique": return <History className="h-3.5 w-3.5 mr-1" />;
+    case "afficher_glossaire": return <BookMarked className="h-3.5 w-3.5 mr-1" />;
     default: return null;
   }
 }

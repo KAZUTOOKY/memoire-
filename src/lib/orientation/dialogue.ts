@@ -25,6 +25,7 @@ export interface DialogueAction {
     | "texte"
     | "proposer_test"
     | "proposer_recommandations"
+    | "proposer_recommandations_filieres"
     | "demarrer_profil"
     | "redirection_conseiller"
     | "afficher_profil"
@@ -32,6 +33,8 @@ export interface DialogueAction {
     | "afficher_metier"
     | "afficher_liste_filieres"
     | "afficher_liste_metiers"
+    | "afficher_historique"
+    | "afficher_glossaire"
     | "suggestion";
   texte: string;
   // données complémentaires sérialisables (renvoyées au client pour rendu enrichi)
@@ -243,6 +246,24 @@ export async function gererDialogue(input: DialogueInput): Promise<DialogueOutpu
     }
 
     case "consultation_profil": {
+      // Cas spécial : demande d'historique
+      if (/\b(historique|sessions|pr\u00e9c\u00e9dente)\b/i.test(message)) {
+        reponseSysteme = "📜 **Votre historique de sessions** est disponible dans la fenêtre dédiée. Cliquez ci-dessous pour ouvrir l'historique complet de vos conversations et recommandations passées.";
+        actions = [
+          { type: "texte", texte: reponseSysteme },
+          { type: "afficher_historique", texte: "Ouvrir l'historique" },
+        ];
+        break;
+      }
+      // Cas spécial : demande de glossaire RIASEC
+      if (/\b(glossaire|holland|explique|expliquez|comprendre|qu'est-ce|qu'est ce)\b/i.test(message)) {
+        reponseSysteme = "📚 Le **modèle RIASEC** (de John Holland) classe les intérêts professionnels en 6 dimensions. Cliquez ci-dessous pour ouvrir le glossaire complet avec exemples de métiers et matières fortes pour chaque dimension.";
+        actions = [
+          { type: "texte", texte: reponseSysteme },
+          { type: "afficher_glossaire", texte: "Ouvrir le glossaire RIASEC" },
+        ];
+        break;
+      }
       if (!profilComplet && !profilDeBaseRenseigne) {
         reponseSysteme = "Vous n'avez pas encore de profil enregistré. Commencez par renseigner votre profil de base, puis passez le test RIASEC.";
         actions = [
@@ -277,6 +298,7 @@ export async function gererDialogue(input: DialogueInput): Promise<DialogueOutpu
       if (!profilComplet) {
         actions.push({ type: "proposer_test", texte: "Passer le test RIASEC" });
       }
+      actions.push({ type: "suggestion", texte: "Glossaire RIASEC", donnees: { message: "Expliquez-moi le modèle RIASEC" } });
       break;
     }
 
@@ -292,6 +314,9 @@ export async function gererDialogue(input: DialogueInput): Promise<DialogueOutpu
       const metiers = await db.metier.findMany({
         include: { filieres: { include: { filiere: true } } },
       });
+      const filieresAll = await db.filiere.findMany({
+        include: { metiers: { include: { metier: true } } },
+      });
       const recos = recommander(profil, metiers, {
         limite: 5,
         filtreNiveau: (m) => {
@@ -301,6 +326,7 @@ export async function gererDialogue(input: DialogueInput): Promise<DialogueOutpu
           return true;
         },
       });
+      const recosFilieres = recommander(profil, filieresAll, { limite: 4 });
       // Persistance des recommandations (RG6)
       await db.recommandation.createMany({
         data: recos.map((r) => ({
@@ -312,7 +338,7 @@ export async function gererDialogue(input: DialogueInput): Promise<DialogueOutpu
       });
       const dom = profilDominant(profil);
       const lignes: string[] = [
-        `🎯 Voici vos **${recos.length} recommandations personnalisées** (profil dominant : **${RIASEC_DIMENSIONS[dom].label}**) :`,
+        `🎯 Voici vos **${recos.length} métiers recommandés** + **${recosFilieres.length} filières compatibles** (profil dominant : **${RIASEC_DIMENSIONS[dom].label}**) :`,
         "",
       ];
       recos.forEach((r, i) => {
@@ -320,6 +346,10 @@ export async function gererDialogue(input: DialogueInput): Promise<DialogueOutpu
         lignes.push(`   _${r.justification}_`);
         if (r.cible.secteurActivite) lignes.push(`   🔹 Secteur : ${r.cible.secteurActivite}`);
         lignes.push("");
+      });
+      lignes.push("🎓 **Filières compatibles** :");
+      recosFilieres.forEach((r, i) => {
+        lignes.push(`   ${i + 1}. **${r.cible.nom}** — ${Math.round(r.scoreCompatibilite * 100)}%`);
       });
       reponseSysteme = lignes.join("\n");
       actions = [
@@ -335,9 +365,22 @@ export async function gererDialogue(input: DialogueInput): Promise<DialogueOutpu
               secteur: r.cible.secteurActivite,
               salaire: r.cible.salaireMoyen,
             })),
+            recommandationsFilieres: recosFilieres.map((r) => ({
+              filiereId: r.cible.id,
+              nom: r.cible.nom,
+              score: r.scoreCompatibilite,
+              justification: r.justification,
+              duree: r.cible.duree,
+              etablissements: r.cible.etablissementsDisponibles
+                ? r.cible.etablissementsDisponibles.split("|").map((s) => s.trim()).filter(Boolean)
+                : [],
+              debouches: r.cible.debouchesText,
+            })),
             dominant: dom,
           },
         },
+        { type: "suggestion", texte: "Voir mon profil", donnees: { message: "Montrez-moi mon profil" } },
+        { type: "suggestion", texte: "Parler à un conseiller", donnees: { message: "Je veux parler à un conseiller humain" } },
       ];
       break;
     }

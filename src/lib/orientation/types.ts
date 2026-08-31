@@ -67,13 +67,17 @@ export type ActionType =
   | "texte"
   | "proposer_test"
   | "proposer_recommandations"
+  | "proposer_recommandations_filieres"
   | "demarrer_profil"
   | "redirection_conseiller"
   | "afficher_profil"
   | "afficher_filiere"
   | "afficher_metier"
   | "afficher_liste_filieres"
-  | "afficher_liste_metiers";
+  | "afficher_liste_metiers"
+  | "afficher_historique"
+  | "afficher_glossaire"
+  | "suggestion";
 
 export interface DialogueAction {
   type: ActionType;
@@ -98,6 +102,16 @@ export interface RiasecRecoAffichage {
   justification: string;
   secteur?: string | null;
   salaire?: string | null;
+}
+
+export interface FiliereRecoAffichage {
+  filiereId: string;
+  nom: string;
+  score: number;
+  justification: string;
+  duree?: string | null;
+  etablissements?: string[] | null;
+  debouches?: string | null;
 }
 
 export interface ProfilRiasecVec {
