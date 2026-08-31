@@ -28,6 +28,7 @@ import {
   MessageCircle,
   History,
   BookMarked,
+  Brain,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -38,6 +39,7 @@ import { RiasecResultDialog } from "./RiasecResultDialog";
 import { CounselorDialog } from "./CounselorDialog";
 import { RecommendationsCard } from "./RecommendationsCard";
 import { FiliereRecommendationsCard } from "./FiliereRecommendationsCard";
+import { FiliereDetailsCard, type FiliereDetailsData } from "./FiliereDetailsCard";
 import { ProfileSummary } from "./ProfileSummary";
 import { OnboardingStepper, calculerEtape } from "./OnboardingStepper";
 import { CompareFilieresDialog } from "./CompareFilieresDialog";
@@ -45,6 +47,8 @@ import { ExportRecommandationsDialog } from "./ExportRecommandationsDialog";
 import { SessionHistoryDialog } from "./SessionHistoryDialog";
 import { StatsCard } from "./StatsCard";
 import { RiasecGlossaryDialog } from "./RiasecGlossaryDialog";
+import { FeedbackButtons } from "./FeedbackButtons";
+import { PersonalityQuestionnaire } from "./PersonalityQuestionnaire";
 import {
   RIASEC_DIMENSIONS,
   RIASEC_ORDER,
@@ -107,6 +111,7 @@ export function ChatInterface() {
   const [showExport, setShowExport] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showGlossary, setShowGlossary] = useState(false);
+  const [showPersonality, setShowPersonality] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [lastTestResult, setLastTestResult] = useState<TestResult | null>(null);
@@ -580,6 +585,7 @@ export function ChatInterface() {
     { label: "Créer mon profil", icon: ClipboardList, action: () => setShowProfile(true), color: "text-primary" },
     { label: "Passer le test RIASEC", icon: Compass, action: () => setShowTest(true), color: "text-accent-foreground" },
     { label: "Mes recommandations", icon: Sparkles, action: demanderRecommandations, color: "text-primary" },
+    { label: "Ma personnalité", icon: Brain, action: () => setShowPersonality(true), color: "text-foreground" },
     { label: "Comparer les filières", icon: GitCompareArrows, action: () => setShowCompare(true), color: "text-foreground" },
     { label: "Glossaire RIASEC", icon: BookMarked, action: () => setShowGlossary(true), color: "text-foreground" },
     { label: "Historique", icon: History, action: () => setShowHistory(true), color: "text-foreground" },
@@ -744,6 +750,8 @@ export function ChatInterface() {
                   onVoirMetier={voirMetier}
                   onVoirFiliere={voirFiliere}
                   onRecommandations={demanderRecommandations}
+                  utilisateurId={utilisateur?.id}
+                  sessionId={session?.id}
                 />
               ))}
               {loading && (
@@ -861,6 +869,7 @@ export function ChatInterface() {
         result={lastTestResult}
         onRecommandations={demanderRecommandations}
         onRepasser={() => { setShowResult(false); setShowTest(true); }}
+        onExport={() => { setShowResult(false); setShowExport(true); }}
       />
 
       {/* Dialog: comparateur de filières */}
@@ -891,6 +900,16 @@ export function ChatInterface() {
         open={showGlossary}
         onOpenChange={setShowGlossary}
       />
+
+      {/* Dialog: questionnaire de personnalité */}
+      {utilisateur && (
+        <PersonalityQuestionnaire
+          open={showPersonality}
+          onOpenChange={setShowPersonality}
+          utilisateur={utilisateur}
+          onSaved={(u) => { setUtilisateur(u); setStatsKey((k) => k + 1); }}
+        />
+      )}
     </div>
   );
 }
@@ -917,12 +936,16 @@ function MessageRow({
   onVoirMetier,
   onVoirFiliere,
   onRecommandations,
+  utilisateurId,
+  sessionId,
 }: {
   message: ChatMessage;
   onAction: (a: DialogueAction) => void;
   onVoirMetier: (id: string) => void;
   onVoirFiliere: (id: string) => void;
   onRecommandations: () => void;
+  utilisateurId?: string;
+  sessionId?: string;
 }) {
   const isUser = message.role === "user";
   const time = new Date(message.timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
@@ -960,6 +983,16 @@ function MessageRow({
             onVoirMetier={onVoirMetier}
             onVoirFiliere={onVoirFiliere}
             onRecommandations={onRecommandations}
+          />
+        )}
+
+        {/* Feedback buttons (👍/👎) — seulement pour les messages du bot avec du contenu */}
+        {!isUser && message.content && (
+          <FeedbackButtons
+            messageContent={message.content}
+            intention={message.intention}
+            utilisateurId={utilisateurId}
+            sessionId={sessionId}
           />
         )}
       </div>
@@ -1046,6 +1079,15 @@ function ActionRenderer({
                 ))}
               </CardContent>
             </Card>
+          );
+        }
+        if (a.type === "afficher_details_filiere") {
+          const filiere = a.donnees?.filiere as FiliereDetailsData | undefined;
+          if (!filiere) return null;
+          return (
+            <div key={i} className="w-full max-w-md">
+              <FiliereDetailsCard filiere={filiere} />
+            </div>
           );
         }
         if (a.type === "afficher_liste_filieres") {

@@ -144,22 +144,33 @@ function detecterMotCleDomaine(messageNorm: string, domainesParFiliere: { filier
 export interface NluContext {
   filieres: { id: string; nom: string; domaines: string[] }[];
   metiers: { id: string; nom: string }[];
+  motsAppris?: Record<string, string[]>; // intention -> mots-clés appris via feedback
 }
 
 export function analyserMessage(message: string, ctx: NluContext): NluResult {
   const messageNorm = normaliser(message);
+  // Fusionner les mots-clés statiques avec les mots-clés appris
+  const mergedKeywords: Record<IntentLabel, string[]> = { ...KEYWORDS };
+  if (ctx.motsAppris) {
+    for (const [intent, mots] of Object.entries(ctx.motsAppris)) {
+      const key = intent as IntentLabel;
+      if (mergedKeywords[key]) {
+        mergedKeywords[key] = [...mergedKeywords[key], ...mots];
+      }
+    }
+  }
   const scores: Record<IntentLabel, { count: number; matched: string[] }> = {
-    salutation: compterOccurrences(messageNorm, KEYWORDS.salutation),
-    remerciement: compterOccurrences(messageNorm, KEYWORDS.remerciement),
-    demande_test_riasec: compterOccurrences(messageNorm, KEYWORDS.demande_test_riasec),
-    demande_recommandation: compterOccurrences(messageNorm, KEYWORDS.demande_recommandation),
-    demande_debouches: compterOccurrences(messageNorm, KEYWORDS.demande_debouches),
-    aide_conseiller: compterOccurrences(messageNorm, KEYWORDS.aide_conseiller),
-    consultation_profil: compterOccurrences(messageNorm, KEYWORDS.consultation_profil),
-    demarrage_profil: compterOccurrences(messageNorm, KEYWORDS.demarrage_profil),
-    recherche_metier: compterOccurrences(messageNorm, KEYWORDS.recherche_metier),
-    recherche_filiere: compterOccurrences(messageNorm, KEYWORDS.recherche_filiere),
-    information_generale: compterOccurrences(messageNorm, KEYWORDS.information_generale),
+    salutation: compterOccurrences(messageNorm, mergedKeywords.salutation),
+    remerciement: compterOccurrences(messageNorm, mergedKeywords.remerciement),
+    demande_test_riasec: compterOccurrences(messageNorm, mergedKeywords.demande_test_riasec),
+    demande_recommandation: compterOccurrences(messageNorm, mergedKeywords.demande_recommandation),
+    demande_debouches: compterOccurrences(messageNorm, mergedKeywords.demande_debouches),
+    aide_conseiller: compterOccurrences(messageNorm, mergedKeywords.aide_conseiller),
+    consultation_profil: compterOccurrences(messageNorm, mergedKeywords.consultation_profil),
+    demarrage_profil: compterOccurrences(messageNorm, mergedKeywords.demarrage_profil),
+    recherche_metier: compterOccurrences(messageNorm, mergedKeywords.recherche_metier),
+    recherche_filiere: compterOccurrences(messageNorm, mergedKeywords.recherche_filiere),
+    information_generale: compterOccurrences(messageNorm, mergedKeywords.information_generale),
   };
 
   // Détection d'entités

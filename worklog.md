@@ -183,3 +183,47 @@ Plan d'action round 2 (features + styling) :
 4. **Recherche globale** : barre de recherche dans le chat (filtre messages/filieres/métiers).
 5. **Polish styling** : animations de transition entre messages, badge "nouveau" sur les recommandations, footer enrichi avec stats.
 6. **Glossaire RIASEC** : dialog expliquant les 6 dimensions avec exemples de métiers types.
+
+---
+Task ID: 14
+Agent: cron-review (round 3 — exécution)
+Task: Round 3 — Pros/cons détaillés filières + IA auto-apprenante + personnalité + PDF.
+
+Work Log:
+- **Schéma Prisma** : ajout de 7 champs pros/cons à Filiere (avantagesFinanciers, inconvenientsFinanciers, avantagesMentaux, inconvenientsMentaux, avantagesPhysiques, inconvenientsPhysiques, conseils). Ajout du modèle `Feedback` (pour l'apprentissage) et `ApprentissageNlu` (mots-clés appris dynamiquement). Ajout de champs de personnalité à Utilisateur (ambition, rythme, autonomie, styleTravail, toleranceStress) + filiereSouhaitee.
+- **Seed** : 15 filières avec données pros/cons complètes (3 plans x avantages/inconvénients + 4 conseils chacune). Contexte ivoirien (salaires FCFA, établissements CI, conseils pratiques).
+- **API /feedback** (POST/GET) : enregistre feedback 👍/👎 + correction. Si feedback négatif avec intention correcte, extrait les mots-clés du message et les associe à la bonne intention via `ApprentissageNlu` (upsert avec incrément de poids).
+- **NLU dynamique** : `analyserMessage` fusionne maintenant les mots-clés statiques avec les mots-clés appris via feedback (`ctx.motsAppris`). Le `construireContexteNLU` charge les mots-clés appris depuis la base à chaque message.
+- **Dialogue manager** :
+  - `recherche_filiere` : détecte les demandes d'orientation ("je veux faire X", "quelle filière"). Si l'utilisateur n'a pas passé le test → enregistre `filiereSouhaitee` + propose le test. Si le test est passé → affiche `FiliereDetailsCard` avec pros/cons complets + score de compatibilité.
+  - `demande_recommandation` : inclut maintenant les pros/cons pour chaque filière recommandée.
+  - `consultation_profil` : détecte "historique" → action `afficher_historique` ; détecte "glossaire/holland" → action `afficher_glossaire`.
+- **Composants** :
+  - `FiliereDetailsCard` : carte détaillée avec 3 blocs pros/cons (financier vert, mental violet, physique orange) + conseils en appui + infos de base (durée, accès, établissements).
+  - `FeedbackButtons` : 👍/👎 sur chaque message du bot. Si 👎 → dialog de correction (intention attendue + texte libre).
+  - `PersonalityQuestionnaire` : 5 questions (ambition, rythme, autonomie, styleTravail, toleranceStress) avec auto-avance, sauvegarde via PATCH /users.
+- **API /users PATCH** : gère maintenant les champs de personnalité + filiereSouhaitee.
+- **API /stats** : nouvelle route pour statistiques (nb sessions, messages, recos, profil dominant, jours inscription).
+- **RiasecResultDialog** : ajout bouton PDF qui ouvre l'ExportRecommandationsDialog.
+- **Print CSS** : styles `@media print` pour masquer tout sauf le dialog d'export lors de l'impression PDF.
+- **Bug fix** : `db.apprentissageNlu` non reconnu après ajout du modèle → `prisma generate` + redémarrage serveur.
+
+Verification (agent-browser) :
+- "Je veux faire informatique" → "C'est noté ! Vous êtes intéressé(e) par Informatique & Génie Logiciel 📝" + propose test RIASEC. ✓
+- Test RIASEC (30 TAF) → dialog résultats avec radar + bouton PDF. ✓
+- "Donne-moi les details de la filiere medecine" → FiliereDetailsCard avec Plan financier (salaire élevé 500k-3M), Plan mental (stress émotionnel, garde de nuit), Plan physique (garde de nuit), Conseils (sophrologie). ✓
+- Personality questionnaire (5 questions) → "Profil de personnalité enregistré ! L'IA adaptera ses recommandations." ✓
+- Feedback 👎 → dialog "Aidez-moi à m'améliorer" (intention attendue + correction). ✓
+- 0 erreur console, 0 warning. Lint propre. ✓
+- Screenshots : qa-r3-result.png, qa-r3-filiere-details.png, qa-r3-pros-cons.png.
+
+Stage Summary:
+- Round 3 terminé avec succès.
+- Features livrées : pros/cons détaillés (financier/mental/physique + conseils) pour 15 filières, IA auto-apprenante (feedback 👍/👎 + extraction de mots-clés + NLU dynamique), questionnaire de personnalité (5 dimensions), bouton PDF dans les résultats, enregistrement de la filière souhaitée, dialogue adaptatif (propose le test si pas passé, affiche détails complets si test passé).
+- L'IA apprend de ses erreurs : chaque feedback négatif avec intention correcte ajoute des mots-clés à la table ApprentissageNlu, qui sont chargés et fusionnés avec les mots-clés statiques à chaque message.
+- L'IA s'adapte à la personnalité : le questionnaire enregistre 5 traits qui peuvent être utilisés pour pondérer les recommandations.
+
+Unresolved issues / risks :
+- L'adaptation des recommandations selon la personnalité n'est pas encore pondérée dans l'algorithme (les champs sont stockés mais le moteur de recommandation ne les utilise pas encore pour ajuster les scores).
+- Le NLU peut parfois détecter un métier au lieu d'une filière quand le mot-clé ("informatique") apparaît dans les deux.
+- L'apprentissage NLU est limité aux mots-clés extraits du message original (pas de reformulation).

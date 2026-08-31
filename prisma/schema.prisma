@@ -15,6 +15,7 @@ model Utilisateur {
   id                   String      @id @default(cuid())
   niveauEtudes         String?     // Terminale, Licence 1, Licence 2, Licence 3, etc.
   filiereActuelleId    String?     // RG1
+  filiereSouhaitee     String?     // filière exprimée par l'utilisateur (avant test)
   // Scores RIASEC (6 dimensions)
   scoreRealiste        Int         @default(0)
   scoreInvestigateur   Int         @default(0)
@@ -24,10 +25,17 @@ model Utilisateur {
   scoreConventionnel   Int         @default(0)
   profilDominant       String?     // dimension RIASEC dominante (R/I/A/S/E/C)
   localisation         String?     // ville / région de Côte d'Ivoire
+  // Personnalité (questionnaire court) — échelle 1..5
+  ambition             Int?        // 1=prudent, 5=tres ambitieux
+  rythme               Int?        // 1=lent/méthodique, 5=rapide/intense
+  autonomie            Int?        // 1=encadré, 5=tres autonome
+  styleTravail         String?     // "solo", "equipe", "mixte"
+  toleranceStress      Int?        // 1=faible, 5=élevée
   dateCreation         DateTime    @default(now())
 
   filiereActuelle      Filiere?    @relation("FiliereActuelle", fields: [filiereActuelleId], references: [id])
   sessions             Session[]
+  feedbacks            Feedback[]
 
   @@map("utilisateur")
 }
@@ -48,6 +56,14 @@ model Filiere {
   duree                    String?  // durée de la formation
   debouchesText            String?  // débouchés résumés
   domaines                 String?  // mots-clés de domaine (séparés par |)
+  // Avantages / Inconvénients détaillés (3 plans) + conseils
+  avantagesFinanciers      String?  // séparés par |
+  inconvenientsFinanciers  String?
+  avantagesMentaux         String?
+  inconvenientsMentaux     String?
+  avantagesPhysiques       String?
+  inconvenientsPhysiques   String?
+  conseils                 String?  // conseils en appui, séparés par |
 
   utilisateurs             Utilisateur[] @relation("FiliereActuelle")
   metiers                  FiliereMetier[]
@@ -173,4 +189,36 @@ model DemandeConseiller {
   dateDemande  DateTime @default(now())
 
   @@map("demande_conseiller")
+}
+
+/// Feedback utilisateur sur les réponses du bot — permet à l'IA d'apprendre de ses erreurs.
+model Feedback {
+  id              String   @id @default(cuid())
+  utilisateurId   String?
+  sessionId       String?
+  interactionId   String?
+  messageUtilisateur String  // message original de l'utilisateur
+  reponseBot      String   // réponse du bot évaluée
+  intentionDetectee String? // intention détectée à l'époque
+  note            Int      // 1 = positif (👍), -1 = négatif (👎)
+  correction      String?  // texte saisi par l'utilisateur si négatif
+  intentionCorrecte String? // intention que l'utilisateur aurait attendue
+  dateFeedback    DateTime @default(now())
+
+  utilisateur     Utilisateur? @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+
+  @@map("feedback")
+}
+
+/// Apprentissage NLU dynamique — mots-clés ajoutés/corrigés via feedback.
+model ApprentissageNlu {
+  id            String   @id @default(cuid())
+  intention     String   // intention cible
+  motCle        String   // mot-clé appris
+  source        String   @default("feedback") // feedback, seed
+  poids         Int      @default(1) // nombre de fois vu
+  dateAjout     DateTime @default(now())
+
+  @@unique([intention, motCle])
+  @@map("apprentissage_nlu")
 }

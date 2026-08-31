@@ -145,3 +145,8 @@ export function recommander<T extends { id: string; nom: string } & CibleRiasec>
 
   return scored;
 }
+
+// Similarité rapide (cosinus) entre un profil RIASEC et une cible — pour usage ponctuel
+export function similariteRapide(profil: ProfilRiasec, cible: CibleRiasec): number {
+  return similariteCosinus(vecteurUtilisateur(profil), vecteurCible(cible));
+}

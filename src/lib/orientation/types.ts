@@ -6,6 +6,7 @@ export interface Utilisateur {
   niveauEtudes: string | null;
   filiereActuelleId: string | null;
   filiereActuelle?: Filiere | null;
+  filiereSouhaitee?: string | null;
   scoreRealiste: number;
   scoreInvestigateur: number;
   scoreArtistique: number;
@@ -14,6 +15,12 @@ export interface Utilisateur {
   scoreConventionnel: number;
   profilDominant: string | null;
   localisation: string | null;
+  // Personnalité
+  ambition?: number | null;
+  rythme?: number | null;
+  autonomie?: number | null;
+  styleTravail?: string | null;
+  toleranceStress?: number | null;
   dateCreation: string;
 }
 
@@ -34,6 +41,14 @@ export interface Filiere {
   debouchesText?: string | null;
   domaines?: string | null;
   metiers?: Metier[];
+  // Pros/cons détaillés
+  avantagesFinanciers?: string[];
+  inconvenientsFinanciers?: string[];
+  avantagesMentaux?: string[];
+  inconvenientsMentaux?: string[];
+  avantagesPhysiques?: string[];
+  inconvenientsPhysiques?: string[];
+  conseils?: string[];
 }
 
 export interface Metier {
@@ -72,6 +87,7 @@ export type ActionType =
   | "redirection_conseiller"
   | "afficher_profil"
   | "afficher_filiere"
+  | "afficher_details_filiere"
   | "afficher_metier"
   | "afficher_liste_filieres"
   | "afficher_liste_metiers"

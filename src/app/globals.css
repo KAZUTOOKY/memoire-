@@ -227,3 +227,28 @@ input[type="number"]::-webkit-inner-spin-button {
   margin: 0;
 }
 
+/* Print styles — masquer tout sauf le dialog d'export */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  [role="dialog"],
+  [role="dialog"] * {
+    visibility: visible;
+  }
+  [role="dialog"] {
+    position: absolute !important;
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: none !important;
+    max-height: none !important;
+    transform: none !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+}
+

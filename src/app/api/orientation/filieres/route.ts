@@ -3,6 +3,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
+function parseList(s: string | null): string[] {
+  return s?.split("|").map((x) => x.trim()).filter(Boolean) ?? [];
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
@@ -14,8 +18,15 @@ export async function GET(req: NextRequest) {
     if (!filiere) return NextResponse.json({ error: "Introuvable" }, { status: 404 });
     return NextResponse.json({
       ...filiere,
-      etablissements: filiere.etablissementsDisponibles?.split("|").map((s) => s.trim()).filter(Boolean) ?? [],
-      domaines: filiere.domaines?.split("|").map((s) => s.trim()).filter(Boolean) ?? [],
+      etablissements: parseList(filiere.etablissementsDisponibles),
+      domaines: parseList(filiere.domaines),
+      avantagesFinanciers: parseList(filiere.avantagesFinanciers),
+      inconvenientsFinanciers: parseList(filiere.inconvenientsFinanciers),
+      avantagesMentaux: parseList(filiere.avantagesMentaux),
+      inconvenientsMentaux: parseList(filiere.inconvenientsMentaux),
+      avantagesPhysiques: parseList(filiere.avantagesPhysiques),
+      inconvenientsPhysiques: parseList(filiere.inconvenientsPhysiques),
+      conseils: parseList(filiere.conseils),
       metiers: filiere.metiers.map((m) => m.metier),
     });
   }
@@ -23,8 +34,15 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(
     filieres.map((f) => ({
       ...f,
-      etablissements: f.etablissementsDisponibles?.split("|").map((s) => s.trim()).filter(Boolean) ?? [],
-      domaines: f.domaines?.split("|").map((s) => s.trim()).filter(Boolean) ?? [],
+      etablissements: parseList(f.etablissementsDisponibles),
+      domaines: parseList(f.domaines),
+      avantagesFinanciers: parseList(f.avantagesFinanciers),
+      inconvenientsFinanciers: parseList(f.inconvenientsFinanciers),
+      avantagesMentaux: parseList(f.avantagesMentaux),
+      inconvenientsMentaux: parseList(f.inconvenientsMentaux),
+      avantagesPhysiques: parseList(f.avantagesPhysiques),
+      inconvenientsPhysiques: parseList(f.inconvenientsPhysiques),
+      conseils: parseList(f.conseils),
     }))
   );
 }

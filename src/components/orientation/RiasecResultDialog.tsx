@@ -10,7 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Sparkles, RotateCcw, Trophy } from "lucide-react";
+import { Sparkles, RotateCcw, Trophy, FileDown } from "lucide-react";
 import { RiasecRadar } from "./RiasecRadar";
 import {
   RIASEC_DIMENSIONS,
@@ -31,9 +31,10 @@ interface Props {
   } | null;
   onRecommandations: () => void;
   onRepasser: () => void;
+  onExport?: () => void;
 }
 
-export function RiasecResultDialog({ open, onOpenChange, result, onRecommandations, onRepasser }: Props) {
+export function RiasecResultDialog({ open, onOpenChange, result, onRecommandations, onRepasser, onExport }: Props) {
   if (!result) return null;
 
   return (
@@ -131,14 +132,19 @@ export function RiasecResultDialog({ open, onOpenChange, result, onRecommandatio
 
         <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="outline" size="sm" onClick={onRepasser} className="text-xs">
-            <RotateCcw className="h-3.5 w-3.5 mr-1" /> Repasser le test
+            <RotateCcw className="h-3.5 w-3.5 mr-1" /> Repasser
           </Button>
+          {onExport && (
+            <Button variant="outline" size="sm" onClick={onExport} className="text-xs">
+              <FileDown className="h-3.5 w-3.5 mr-1" /> PDF
+            </Button>
+          )}
           <Button
             size="sm"
             onClick={() => { onOpenChange(false); onRecommandations(); }}
             className="text-xs flex-1 bg-gradient-to-r from-primary to-accent"
           >
-            <Sparkles className="h-3.5 w-3.5 mr-1" /> Voir mes recommandations
+            <Sparkles className="h-3.5 w-3.5 mr-1" /> Recommandations
           </Button>
         </DialogFooter>
       </DialogContent>

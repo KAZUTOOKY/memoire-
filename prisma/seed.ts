@@ -185,6 +185,150 @@ const FILIERES: Array<{
   },
 ];
 
+// Pros/cons détaillés (financier, mental, physique) + conseils pour chaque filière
+const PROS_CONS: Record<string, {
+  avF: string[]; incF: string[];
+  avM: string[]; incM: string[];
+  avP: string[]; incP: string[];
+  conseils: string[];
+}> = {
+  "Informatique & Génie Logiciel": {
+    avF: ["Salaire élevé (300k–1.5M FCFA/mois)", "Freelance possible", "Demande forte en CI et à l'étranger", "Évolution rapide"],
+    incF: ["Formation privée coûteuse", "Matériel à renouveler", "Coût connexion internet"],
+    avM: ["Stimulation intellectuelle", "Créativité valorisée", "Communauté d'entraide", "Apprentissage continu"],
+    incM: ["Veille technologique exigeante", "Risque de surcharge mentale", "Frustration des bugs"],
+    avP: ["Travail en intérieur climatisé", "Horaires flexibles", "Télétravail possible"],
+    incP: ["Sédentarité prolongée", "Fatigue visuelle", "Problèmes de dos"],
+    conseils: ["Pauses régulières (Pomodoro)", "Bonne chaise + écran", "Sport 2x/semaine", "Rejoignez DevCI"],
+  },
+  "Génie Civil & BTP": {
+    avF: ["Salaire correct (400k–1.8M FCFA)", "Secteur en boom en CI", "Projets de grande envergure", "Évolution vers chef de projet"],
+    incF: ["Concours INP-HB sélectif", "Investissement en logiciels", "Débuts parfois précaires"],
+    avM: ["Satisfaction de bâtir des ouvrages", "Travail d'équipe", "Variété des projets"],
+    incM: ["Responsabilité lourde (sécurité)", "Stress des délais", "Pression budgétaire"],
+    avP: ["Travail mixte bureau/terrain", "Activité physique modérée", "Déplacements"],
+    incP: ["Exposition aux intempéries", "Risque sur chantier", "Horaires parfois étendus"],
+    conseils: ["Maîtrisez AutoCAD/Revit", "Faites des stages chantier", "Respectez les normes de sécurité", "Réseautez avec les entreprises BTP"],
+  },
+  "Médecine & Sciences de la Santé": {
+    avF: ["Salaire élevé en fin de carrière (500k–3M FCFA)", "Cabinet libéral lucratif", "Statut social valorisant", "Sécurité de l'emploi"],
+    incF: ["Études longues (7–9 ans)", "Coût de la formation", "Installation cabinet coûteuse"],
+    avM: ["Vocation d'aider", "Satisfaction de sauver des vies", "Respect social", "Diversité des cas"],
+    incM: ["Stress émotionnel élevé", "Garde de nuit", "Charge mentale des décisions", "Risque de burn-out"],
+    avP: ["Activité debout", "Déplacements entre services", "Gestes médicaux"],
+    incP: ["Horaires épuisants", "Garde de nuit", "Exposition aux maladies", "Fatigue physique"],
+    conseils: ["Évaluez votre résistance au stress", "Pratiquez la sophrologie", "Entourez-vous (famille, pairs)", "Prévoyez des jours de repos"],
+  },
+  "Sciences Économiques & Gestion": {
+    avF: ["Salaire correct (400k–2M FCFA)", "Débouchés banques/BCEAO", "Polyvalence", "Évolution vers management"],
+    incF: ["Concurrence forte sur les postes", "Spécialisation parfois nécessaire (master)"],
+    avM: ["Compréhension du monde économique", "Analyse stratégique", "Polyvalence"],
+    incM: ["Risque de routine", "Pression des résultats", "Veille économique permanente"],
+    avP: ["Travail de bureau", "Horaires réguliers", "Peu d'effort physique"],
+    incP: ["Sédentarité", "Écrans prolongés"],
+    conseils: ["Faites des stages en banque", "Apprenez l'anglais économique", "Suivez l'actualité économique", "Visez un master spécialisé"],
+  },
+  "Droit & Sciences Juridiques": {
+    avF: ["Salaire variable (300k–3M FCFA)", "Barreau/notation lucrative", "Fonction publique stable", "Honoraires libéraux"],
+    incF: ["Études longues (5–7 ans)", "CAPA exigé pour le barreau", "Installation cabinet coûteuse"],
+    avM: ["Plaidoirie stimulante", "Défense de justes causes", "Rigueur intellectuelle", "Statut social"],
+    incM: ["Dossiers lourds émotionnellement", "Pression des échéances", "Veille juridique permanente"],
+    avP: ["Travail de bureau", "Déplacements au tribunal", "Horaires irrégulières"],
+    incP: ["Sédentarité", "Stress des audiences"],
+    conseils: ["Pratiquez la plaidoirie en clinique juridique", "Faites des stages en cabinet", "Préparez le CAPA tôt", "Spécialisez-vous (affaires, pénal)"],
+  },
+  "Marketing & Commerce": {
+    avF: ["Salaire correct (300k–1.5M FCFA)", "Commissions sur ventes", "Secteur dynamique", "Évolution rapide"],
+    incF: ["Pression sur objectifs", "Salaire débutant modéré", "Concurrence forte"],
+    avM: ["Créativité valorisée", "Contact humain", "Variété des missions", "Sens de l'innovation"],
+    incM: ["Pression des objectifs chiffrés", "Stress des lancements", "Veille concurrentielle"],
+    avP: ["Déplacements clients", "Salons/événements", "Activité modérée"],
+    incP: ["Horaires parfois étendues", "Déplacements fréquents"],
+    conseils: ["Maîtrisez le marketing digital", "Faites des stages en agence", "Développez votre réseau", "Apprenez l'anglais commercial"],
+  },
+  "Architecture & Beaux-Arts": {
+    avF: ["Salaire variable (400k–2.5M FCFA)", "Libéral possible", "Projets prestigieux", "Passion métier"],
+    incF: ["Concours sélectif", "Logiciels coûteux", "Débuts lents"],
+    avM: ["Créativité au cœur", "Satisfaction esthétique", "Liberté de conception", "Reconnaissance"],
+    incM: ["Pression des délais", "Critiques clients", "Rework fréquent"],
+    avP: ["Travail bureau + terrain", "Maquettes physiques", "Visites de chantier"],
+    incP: ["Sédentarité", "Fatigue visuelle (écrans)"],
+    conseils: ["Construisez un portfolio solide", "Maîtrisez AutoCAD/SketchUp", "Faites des stages en agence", "Participez à des concours d'architecture"],
+  },
+  "Communication & Journalisme": {
+    avF: ["Salaire moyen (200k–1.2M FCFA)", "Freelance possible", "Média en expansion", "Polyvalence"],
+    incF: ["Salaire débutant modéré", "CDD fréquents", "Concurrence forte"],
+    avM: ["Contact humain", "Enquêtes stimulantes", "Sens de l'investigation", "Reconnaissance"],
+    incM: ["Pression de l'info en continu", "Stress des échéances", "Risque de harcèlement en ligne"],
+    avP: ["Déplacements", "Terrain", "Horaires irrégulières"],
+    incP: ["Horaires étendues", "Déplacements fréquents"],
+    conseils: ["Multi-spécialisez-vous (écrit, TV, web)", "Faites des stages en rédaction", "Développez votre e-réputation", "Apprenez l'anglais"],
+  },
+  "Agronomie & Sciences Agricoles": {
+    avF: ["Salaire correct (350k–1.5M FCFA)", "Secteur porteur (agro-industrie)", "Projets ruraux", "Entrepreneuriat possible"],
+    incF: ["Concours ESA sélectif", "Débuts en zone rurale", "Investissement matériel"],
+    avM: ["Contact avec la nature", "Sens de l'utile (sécurité alimentaire)", "Variété des cultures"],
+    incM: ["Dépendance météo", "Stress des récoltes", "Isolement rural possible"],
+    avP: ["Travail en plein air", "Activité physique modérée", "Déplacements"],
+    incP: ["Exposition au soleil", "Chaleur", "Port de charges"],
+    conseils: ["Faites des stages en exploitation", "Intéressez-vous à l'agro-écologie", "Réseautez avec SODEFOR/SODERIZ", "Visez l'agro-industrie (Cémoi, SIFCA)"],
+  },
+  "Électrotechnique & Électronique": {
+    avF: ["Salaire correct (350k–1.8M FCFA)", "Demande industrielle forte", "Évolution vers maintenance", "CIE/CIPREL recrutent"],
+    incF: ["Concours INP-HB sélectif", "Matériel de mesure coûteux"],
+    avM: ["Résolution de problèmes techniques", "Satisfaction de réparer", "Logique appliquée"],
+    incM: ["Risque d'électrocution (stress)", "Veille technique", "Astreintes possibles"],
+    avP: ["Travail mixte bureau/terrain", "Activité physique modérée", "Déplacements"],
+    incP: ["Travail en hauteur parfois", "Exposition au bruit", "Horaires d'astreinte"],
+    conseils: ["Maîtrisez l'automatisme (PLC)", "Faites des stages en industrie", "Certifiez-vous (habilitation B1V)", "Visez la maintenance industrielle"],
+  },
+  "Comptabilité & Finance": {
+    avF: ["Salaire stable (250k–1.5M FCFA)", "Expert-comptable très rémunérateur", "Tous secteurs recrutent", "Évolution prévisible"],
+    incF: ["Formation longue pour l'expertise (DEC)", "Stress des clôtures annuelles"],
+    avM: ["Rigueur valorisée", "Sécurité de l'emploi", "Compréhension de l'entreprise"],
+    incM: ["Routine possible", "Pression des clôtures fiscales", "Veille fiscale permanente"],
+    avP: ["Travail de bureau", "Horaires régulières", "Peu d'effort"],
+    incP: ["Sédentarité", "Écrans prolongés"],
+    conseils: ["Visez le DEC/DECOFI", "Maîtrisez SAP/Sage", "Faites des stages en cabinet", "Spécialisez-vous en audit"],
+  },
+  "Enseignement & Sciences de l'Éducation": {
+    avF: ["Salaire stable (200k–800k FCFA)", "Fonction publique sécurisante", "Vacations possibles", "Évolution par concours"],
+    incF: ["Salaire débutant modéré", "Concours ENS sélectif", "Affectation en zone rurale"],
+    avM: ["Transmettre le savoir", "Satisfaction d'éduquer", "Contact avec les jeunes", "Vacances scolaires"],
+    incM: ["Charge de travail (cours + corrections)", "Discipline difficile", "Pression des résultats"],
+    avP: ["Travail debout", "Voix sollicitée", "Déplacements entre classes"],
+    incP: ["Fatigue vocale", "Pieds prolongés", "Bruyant"],
+    conseils: ["Préparez les concours ENS tôt", "Faites des remplacements", "Développez des outils pédagogiques", "Visez l'inspection pour évoluer"],
+  },
+  "Géologie & Mines": {
+    avF: ["Salaire élevé (500k–2.5M FCFA)", "Sociétés minières (SODEMI, Randgold) recrutent", "Prime de terrain", "Pétrole/or en CI"],
+    incF: ["Concours INP-HB sélectif", "Déplacements coûteux", "Équipement personnel"],
+    avM: ["Travail en plein air", "Découvertes scientifiques", "Sens de l'exploration", "Variété"],
+    incM: ["Isolement sur site", "Stress des échéances de forage", "Responsabilité environnementale"],
+    avP: ["Plein air", "Activité physique", "Terrain exigeant"],
+    incP: ["Chaleur/soleil", "Port d'échantillons", "Longs déplacements"],
+    conseils: ["Maîtrisez les SIG (QGIS)", "Faites des stages sur site minier", "Intéressez-vous à l'environnement", "Visez l'hydrogéologie (secteur porteur)"],
+  },
+  "Lettres Modernes & Langues": {
+    avF: ["Salaire moyen (200k–1.2M FCFA)", "Enseignement stable", "Traduction freelance", "Polyvalence"],
+    incF: ["Salaire débutant modéré", "Débouchés plus restreints", "Concurrence dans le journalisme"],
+    avM: ["Passion de la lecture/écriture", "Ouverture culturelle", "Esprit critique", "Créativité"],
+    incM: ["Routine possible", "Isolement intellectuel", "Pression des publications"],
+    avP: ["Travail de bureau", "Horaires régulières", "Peu d'effort"],
+    incP: ["Sédentarité", "Fatigue visuelle"],
+    conseils: ["Combinez avec une 2e compétence (communication, traduction)", "Apprenez 2 langues étrangères", "Faites des stages en rédaction", "Visez l'enseignement supérieur"],
+  },
+  "Management Public & Administration": {
+    avF: ["Salaire stable (300k–1.5M FCFA)", "Fonction publique sécurisante", "Statut enviable", "Évolution par concours"],
+    incF: ["Concours ENA sélectif", "Salaire débutant modéré", "Affectation en préfecture"],
+    avM: ["Service de l'État", "Sens de l'intérêt général", "Pouvoir de décision", "Réseau"],
+    incM: ["Pression administrative", "Lourdeur hiérarchique", "Veille juridique"],
+    avP: ["Travail de bureau", "Horaires régulières", "Réunions"],
+    incP: ["Sédentarité", "Stress des responsabilités"],
+    conseils: ["Préparez le concours ENA tôt", "Faites des stages en ministère", "Développez votre éloquence", "Visez la haute fonction publique"],
+  },
+};
+
 const METIERS: Array<{
   nom: string;
   description: string;
@@ -330,6 +474,8 @@ const INTENTIONS: Array<{ libelle: string; description: string }> = [
 
 async function main() {
   console.log("🧹 Nettoyage de la base...");
+  await db.apprentissageNlu.deleteMany();
+  await db.feedback.deleteMany();
   await db.demandeConseiller.deleteMany();
   await db.recommandation.deleteMany();
   await db.interaction.deleteMany();
@@ -356,6 +502,7 @@ async function main() {
   console.log("🎓 Création des filières...");
   const filiereByName: Record<string, string> = {};
   for (const f of FILIERES) {
+    const pc = PROS_CONS[f.nom] ?? { avF: [], incF: [], avM: [], incM: [], avP: [], incP: [], conseils: [] };
     const created = await db.filiere.create({
       data: {
         nom: f.nom,
@@ -371,6 +518,13 @@ async function main() {
         duree: f.duree,
         debouchesText: f.debouches,
         domaines: f.domaines.join("|"),
+        avantagesFinanciers: pc.avF.join("|"),
+        inconvenientsFinanciers: pc.incF.join("|"),
+        avantagesMentaux: pc.avM.join("|"),
+        inconvenientsMentaux: pc.incM.join("|"),
+        avantagesPhysiques: pc.avP.join("|"),
+        inconvenientsPhysiques: pc.incP.join("|"),
+        conseils: pc.conseils.join("|"),
       },
     });
     filiereByName[f.nom] = created.id;

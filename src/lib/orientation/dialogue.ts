@@ -6,6 +6,7 @@ import {
   recommander,
   profilDominant,
   genererJustification,
+  similariteRapide,
   type ProfilRiasec,
 } from "./recommendation";
 import {
@@ -30,6 +31,7 @@ export interface DialogueAction {
     | "redirection_conseiller"
     | "afficher_profil"
     | "afficher_filiere"
+    | "afficher_details_filiere"
     | "afficher_metier"
     | "afficher_liste_filieres"
     | "afficher_liste_metiers"
@@ -56,6 +58,13 @@ async function construireContexteNLU(): Promise<NluContext> {
   const metiers = await db.metier.findMany({
     select: { id: true, nom: true },
   });
+  // Charger les mots-clés appris via feedback (apprentissage dynamique)
+  const appris = await db.apprentissageNlu.findMany();
+  const motsAppris: Record<string, string[]> = {};
+  for (const a of appris) {
+    if (!motsAppris[a.intention]) motsAppris[a.intention] = [];
+    motsAppris[a.intention].push(a.motCle);
+  }
   return {
     filieres: filieres.map((f) => ({
       id: f.id,
@@ -63,6 +72,7 @@ async function construireContexteNLU(): Promise<NluContext> {
       domaines: f.domaines ? f.domaines.split("|").filter(Boolean) : [],
     })),
     metiers: metiers.map((m) => ({ id: m.id, nom: m.nom })),
+    motsAppris,
   };
 }
 
@@ -375,6 +385,15 @@ export async function gererDialogue(input: DialogueInput): Promise<DialogueOutpu
                 ? r.cible.etablissementsDisponibles.split("|").map((s) => s.trim()).filter(Boolean)
                 : [],
               debouches: r.cible.debouchesText,
+              description: r.cible.description,
+              conditionsAcces: r.cible.conditionsAcces,
+              avantagesFinanciers: r.cible.avantagesFinanciers ? r.cible.avantagesFinanciers.split("|").filter(Boolean) : [],
+              inconvenientsFinanciers: r.cible.inconvenientsFinanciers ? r.cible.inconvenientsFinanciers.split("|").filter(Boolean) : [],
+              avantagesMentaux: r.cible.avantagesMentaux ? r.cible.avantagesMentaux.split("|").filter(Boolean) : [],
+              inconvenientsMentaux: r.cible.inconvenientsMentaux ? r.cible.inconvenientsMentaux.split("|").filter(Boolean) : [],
+              avantagesPhysiques: r.cible.avantagesPhysiques ? r.cible.avantagesPhysiques.split("|").filter(Boolean) : [],
+              inconvenientsPhysiques: r.cible.inconvenientsPhysiques ? r.cible.inconvenientsPhysiques.split("|").filter(Boolean) : [],
+              conseils: r.cible.conseils ? r.cible.conseils.split("|").filter(Boolean) : [],
             })),
             dominant: dom,
           },
@@ -387,23 +406,73 @@ export async function gererDialogue(input: DialogueInput): Promise<DialogueOutpu
 
     case "recherche_filiere": {
       const filiereNom = nlu.entities.filiereNom;
+      // Détecter si l'utilisateur demande une orientation ("quelle filière faire", "je veux faire X")
+      const demandeOrientation = /\b(quelle|quel|je veux|je voudrais|je souhaite|je veux faire|j'aimerais faire|orientation)\b/i.test(message);
+
       if (filiereNom) {
         const f = await db.filiere.findFirst({
           where: { nom: { equals: filiereNom } },
         });
         if (f) {
-          reponseSysteme = formaterFiliere(f);
-          // métiers accessibles depuis cette filière
-          const metiers = await db.filiereMetier.findMany({
-            where: { filiereId: f.id },
-            include: { metier: true },
+          // Enregistrer la filière souhaitée
+          await db.utilisateur.update({
+            where: { id: utilisateurId },
+            data: { filiereSouhaitee: f.nom },
           });
-          if (metiers.length > 0) {
-            reponseSysteme += `\n\n🔹 **Métiers accessibles** : ${metiers.map((m) => m.metier.nom).join(", ")}`;
+
+          // Si l'utilisateur demande une orientation et n'a pas passé le test, proposer le test
+          if (demandeOrientation && !profilComplet) {
+            reponseSysteme = `C'est noté ! Vous êtes intéressé(e) par **${f.nom}** 📝\n\nPour vous donner une recommandation complète avec les avantages et inconvénients (financier, mental, physique) et vérifier que cette filière correspond vraiment à votre profil, je vous invite à passer le **test RIASEC** (≈ 3 min).\n\nAprès le test, je vous montrerai cette filière en détail + d'autres filières compatibles avec votre profil.`;
+            actions = [
+              { type: "texte", texte: reponseSysteme },
+              { type: "proposer_test", texte: "Passer le test RIASEC" },
+              { type: "suggestion", texte: `Voir ${f.nom} sans le test`, donnees: { message: `Donne-moi les détails de la filière ${f.nom}` } },
+            ];
+            break;
           }
-          actions = [
-            { type: "afficher_filiere", texte: reponseSysteme, donnees: { filiereId: f.id, nom: f.nom } },
-          ];
+
+          // Si le test est passé, afficher les détails complets avec pros/cons
+          if (profilComplet) {
+            const dom = profilDominant(profil);
+            const score = similariteRapide(profil, f);
+            reponseSysteme = `Voici les **détails complets** de **${f.nom}** (compatibilité avec votre profil : **${Math.round(score * 100)}%**, profil dominant **${RIASEC_DIMENSIONS[dom].label}**) :`;
+            actions = [
+              { type: "afficher_details_filiere", texte: reponseSysteme, donnees: {
+                filiere: {
+                  nom: f.nom,
+                  description: f.description,
+                  duree: f.duree,
+                  conditionsAcces: f.conditionsAcces,
+                  etablissements: f.etablissementsDisponibles ? f.etablissementsDisponibles.split("|").map((s) => s.trim()).filter(Boolean) : [],
+                  debouches: f.debouchesText,
+                  avantagesFinanciers: f.avantagesFinanciers ? f.avantagesFinanciers.split("|").filter(Boolean) : [],
+                  inconvenientsFinanciers: f.inconvenientsFinanciers ? f.inconvenientsFinanciers.split("|").filter(Boolean) : [],
+                  avantagesMentaux: f.avantagesMentaux ? f.avantagesMentaux.split("|").filter(Boolean) : [],
+                  inconvenientsMentaux: f.inconvenientsMentaux ? f.inconvenientsMentaux.split("|").filter(Boolean) : [],
+                  avantagesPhysiques: f.avantagesPhysiques ? f.avantagesPhysiques.split("|").filter(Boolean) : [],
+                  inconvenientsPhysiques: f.inconvenientsPhysiques ? f.inconvenientsPhysiques.split("|").filter(Boolean) : [],
+                  conseils: f.conseils ? f.conseils.split("|").filter(Boolean) : [],
+                  score,
+                },
+              } },
+              { type: "suggestion", texte: "Mes recommandations complètes", donnees: { message: "Donnez-moi des recommandations personnalisées" } },
+            ];
+          } else {
+            // Pas de test : afficher la fiche simple
+            reponseSysteme = formaterFiliere(f);
+            const metiersLies = await db.filiereMetier.findMany({
+              where: { filiereId: f.id },
+              include: { metier: true },
+            });
+            if (metiersLies.length > 0) {
+              reponseSysteme += `\n\n🔹 **Métiers accessibles** : ${metiersLies.map((m) => m.metier.nom).join(", ")}`;
+            }
+            reponseSysteme += `\n\n💡 _Passez le test RIASEC pour voir les avantages/inconvénients détaillés (financier, mental, physique) et vérifier la compatibilité avec votre profil._`;
+            actions = [
+              { type: "afficher_filiere", texte: reponseSysteme, donnees: { filiereId: f.id, nom: f.nom } },
+              { type: "proposer_test", texte: "Passer le test RIASEC" },
+            ];
+          }
         } else {
           reponseSysteme = `Je n'ai pas trouvé de filière correspondant à "${filiereNom}". Voici la liste des filières disponibles :`;
           const filieres = await db.filiere.findMany();
