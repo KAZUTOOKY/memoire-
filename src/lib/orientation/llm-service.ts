@@ -55,6 +55,7 @@ export interface LlmAction {
     | "profil_collecte"
     | "test_riasec_question"
     | "test_riasec_termine"
+    | "synthese_en_cours"
     | "recommandations_generees"
     | "redirection_conseiller"
     | "afficher_filiere"
@@ -72,6 +73,7 @@ export interface LlmResponse {
   profilMisAJour?: boolean;
   testProgress?: { current: number; total: number };
   sourcesWeb?: Array<{ titre: string; url: string; extrait: string }>;
+  scoresCalcules?: { scores: Record<string, number>; dominant: string; dominantLabel: string };
 }
 
 // Build the system prompt with all context
@@ -98,8 +100,9 @@ function buildSystemPrompt(params: {
   filieres: Array<{ nom: string; description: string | null; duree: string | null; domaines: string | null }>;
   metiers: Array<{ nom: string; secteurActivite: string | null; description: string | null }>;
   testEnCours: { current: number; reponses: Record<number, number> } | null;
+  scoresCalculesFlag?: boolean;
 }): string {
-  const { utilisateur, filieres, metiers, testEnCours } = params;
+  const { utilisateur, filieres, metiers, testEnCours, scoresCalculesFlag } = params;
   const profilComplet =
     utilisateur.scoreRealiste + utilisateur.scoreInvestigateur + utilisateur.scoreArtistique +
     utilisateur.scoreSocial + utilisateur.scoreEntreprenant + utilisateur.scoreConventionnel > 0;
@@ -128,7 +131,26 @@ function buildSystemPrompt(params: {
 ${profilComplet ? `- Scores : R=${utilisateur.scoreRealiste}/20, I=${utilisateur.scoreInvestigateur}/20, A=${utilisateur.scoreArtistique}/20, S=${utilisateur.scoreSocial}/20, E=${utilisateur.scoreEntreprenant}/20, C=${utilisateur.scoreConventionnel}/20
 - Profil dominant : ${utilisateur.profilDominant ?? "non calculé"}` : ""}
 - Personnalité : ambition=${utilisateur.ambition ?? "?"}/5, rythme=${utilisateur.rythme ?? "?"}/5, autonomie=${utilisateur.autonomie ?? "?"}/5, style=${utilisateur.styleTravail ?? "?"}, stress=${utilisateur.toleranceStress ?? "?"}/5
-${testEnCours ? `- TEST EN COURS : question ${testEnCours.current + 1}/30, ${testEnCours.reponses ? Object.keys(testEnCours.reponses).length : 0} réponses collectées` : ""}
+${testEnCours && testEnCours.current <= 30 ? `
+# ⚠️ TEST RIASEC EN COURS — QUESTION ${testEnCours.current}/30
+Le système a enregistré ${Object.keys(testEnCours.reponses).length} réponses. Tu es maintenant à la question ${testEnCours.current}.
+**Tu DOIS poser EXACTEMENT cette affirmation (question ${testEnCours.current}) :**
+"${RIASEC_QUESTIONS[testEnCours.current - 1]?.enonce ?? "ERREUR"}"
+
+Réponds en JSON avec :
+- "reponse" : un court message de transition (ex: "Merci ! Voici la question ${testEnCours.current} :") SUIVI de l'affirmation exacte ci-dessus
+- "actions" : [{ "type": "test_riasec_question", "donnees": { "ordre": ${testEnCours.current}, "dimension": "${RIASEC_QUESTIONS[testEnCours.current - 1]?.dimension}", "enonce": "${RIASEC_QUESTIONS[testEnCours.current - 1]?.enonce}" } }]
+
+Ne pose AUCUNE autre question. Ne commente pas la réponse précédente longuement. Sois bref et passe à la question ${testEnCours.current}.
+` : ""}
+${scoresCalculesFlag ? `
+# ✅ TEST RIASEC TERMINÉ
+Le test vient de se terminer. Les scores ont été calculés par le système :
+- R=${utilisateur.scoreRealiste}/20, I=${utilisateur.scoreInvestigateur}/20, A=${utilisateur.scoreArtistique}/20, S=${utilisateur.scoreSocial}/20, E=${utilisateur.scoreEntreprenant}/20, C=${utilisateur.scoreConventionnel}/20
+- Profil dominant : ${utilisateur.profilDominant}
+
+**Félicite l'utilisateur brièvement, puis dis-lui que tu vas maintenant synthétiser tous ses résultats.** Génère l'action "test_riasec_termine" et l'action "synthese_en_cours".
+` : ""}
 
 # BASE DE CONNAISSANCES
 ## Filières disponibles (contexte ivoirien) :
@@ -286,6 +308,21 @@ export interface LlmChatInput {
   historique: Array<{ role: "user" | "assistant"; content: string }>;
 }
 
+// Extrait une réponse 0-4 depuis un message en langage naturel
+function extraireReponse(message: string): number | null {
+  const msgLower = message.toLowerCase().trim();
+  // Chiffre direct 0-4
+  const numMatch = msgLower.match(/\b([0-4])\b/);
+  if (numMatch) return parseInt(numMatch[1]);
+  // Langage naturel
+  if (/tout a fait|totalement|completement|absolument|tres d'accord|tout à fait/.test(msgLower)) return 4;
+  if (/plutot d'accord|plutôt d'accord|d'accord|^oui$|oui tout|ca me correspond|j'aime|j aime|j adore/.test(msgLower)) return 3;
+  if (/neutre|^bof$|moyen|mitige|mitigé|ni oui ni non/.test(msgLower)) return 2;
+  if (/plutot pas|plutôt pas|pas vraiment|pas d'accord|pas d accord|^non$|bof non|pas trop/.test(msgLower)) return 1;
+  if (/pas du tout|jamais|categoriquement|deteste|déteste|absolument pas/.test(msgLower)) return 0;
+  return null;
+}
+
 export async function gererChatLlm(input: LlmChatInput): Promise<LlmResponse> {
   const { utilisateurId, sessionId, message } = input;
 
@@ -305,26 +342,26 @@ export async function gererChatLlm(input: LlmChatInput): Promise<LlmResponse> {
   const filieres = await db.filiere.findMany({ select: { nom: true, description: true, duree: true, domaines: true } });
   const metiers = await db.metier.findMany({ select: { nom: true, secteurActivite: true, description: true } });
 
-  // Load test in progress state (stored in session metadata or interaction metadata)
-  // We store test progress in the last interaction's metadata or reconstruct from session
+  // Load test state from last interaction metadata
+  // testState: { current: number (1-30), reponses: Record<ordre, valeur>, demarre: boolean }
   const lastInteractions = await db.interaction.findMany({
-    where: { sessionId, messageUtilisateur: { not: null } },
+    where: { sessionId },
     orderBy: { dateHeure: "desc" },
     take: 50,
   });
 
-  // Detect if test is in progress by looking for test_riasec_question actions in recent interactions
-  let testEnCours: { current: number; reponses: Record<number, number> } | null = null;
-  // Parse recent interactions to find test state
+  let testState: { current: number; reponses: Record<number, number>; demarre: boolean } | null = null;
+  let testTermine = false;
   for (const it of lastInteractions.reverse()) {
     if (it.metadata) {
       try {
         const meta = JSON.parse(it.metadata);
-        if (meta.testProgress) {
-          testEnCours = meta.testProgress;
+        if (meta.testState) {
+          testState = meta.testState;
         }
         if (meta.testTermine) {
-          testEnCours = null;
+          testState = null;
+          testTermine = true;
           break;
         }
       } catch {
@@ -333,8 +370,70 @@ export async function gererChatLlm(input: LlmChatInput): Promise<LlmResponse> {
     }
   }
 
-  // Build system prompt
-  const systemPrompt = buildSystemPrompt({ utilisateur, filieres, metiers, testEnCours });
+  // === LOGIQUE DE TEST CONTROLÉE PAR LE BACKEND ===
+  // Si le test est en cours, on extrait la réponse et on incrémente
+  let testProgress: { current: number; total: number } | undefined;
+  let scoresCalcules: { scores: Record<RiasecDimension, number>; dominant: RiasecDimension } | null = null;
+
+  if (testState && testState.demarre && !testTermine) {
+    // L'utilisateur est en train de passer le test
+    // Essayer d'extraire une réponse de son message
+    const reponse = extraireReponse(message);
+    if (reponse !== null && testState.current <= 30) {
+      // Enregistrer la réponse à la question actuelle
+      testState.reponses[testState.current] = reponse;
+      // Incrémenter la question
+      testState.current += 1;
+
+      // Si on a dépassé la question 30, le test est terminé
+      if (testState.current > 30) {
+        testTermine = true;
+        // Calculer les scores
+        const scores: Record<RiasecDimension, number> = { R: 0, I: 0, A: 0, S: 0, E: 0, C: 0 };
+        for (const q of RIASEC_QUESTIONS) {
+          const val = testState.reponses[q.ordre];
+          if (typeof val === "number") {
+            scores[q.dimension] += val;
+          }
+        }
+        for (const k of RIASEC_ORDER) {
+          scores[k] = Math.round((scores[k] / 20) * 20);
+        }
+        const dom = profilDominant(scores);
+        await db.utilisateur.update({
+          where: { id: utilisateurId },
+          data: {
+            scoreRealiste: scores.R,
+            scoreInvestigateur: scores.I,
+            scoreArtistique: scores.A,
+            scoreSocial: scores.S,
+            scoreEntreprenant: scores.E,
+            scoreConventionnel: scores.C,
+            profilDominant: dom,
+          },
+        });
+        scoresCalcules = { scores, dominant: dom };
+        testState = null; // test fini
+      }
+    }
+    // Mettre à jour testProgress pour le frontend
+    if (testState) {
+      testProgress = { current: testState.current, total: 30 };
+    }
+  }
+
+  // Recharger l'utilisateur si les scores ont été calculés
+  let utilisateurFinal = utilisateur;
+  if (scoresCalcules) {
+    utilisateurFinal = await db.utilisateur.findUnique({
+      where: { id: utilisateurId },
+      include: { filiereActuelle: true },
+    }) ?? utilisateur;
+  }
+
+  // Build system prompt avec contexte de test mis à jour
+  const testEnCoursPourPrompt = testState ? { current: testState.current, reponses: testState.reponses } : null;
+  const systemPrompt = buildSystemPrompt({ utilisateur: utilisateurFinal, filieres, metiers, testEnCours: testEnCoursPourPrompt, scoresCalculesFlag: !!scoresCalcules });
 
   // Build messages array (system + history + current message)
   // Convert history to ChatMessage format
@@ -368,7 +467,7 @@ export async function gererChatLlm(input: LlmChatInput): Promise<LlmResponse> {
 
   const parsed = parseLlmResponse(rawResponse);
   let profilMisAJour = false;
-  let testProgress: { current: number; total: number } | undefined;
+  // testProgress est déjà déclaré plus haut dans la logique de test backend
   const finalActions: LlmAction[] = [];
   let sourcesWeb: Array<{ titre: string; url: string; extrait: string }> | undefined;
 
@@ -452,17 +551,22 @@ export async function gererChatLlm(input: LlmChatInput): Promise<LlmResponse> {
         break;
       }
       case "test_riasec_question": {
-        const ordre = action.donnees?.ordre as number;
-        if (ordre) {
-          testProgress = { current: ordre, total: 30 };
+        // Si le test n'est pas encore démarré, l'initialiser
+        if (!testState && !testTermine) {
+          testState = { current: 1, reponses: {}, demarre: true };
+        }
+        // La progression vient du backend (testState), pas du LLM
+        if (testState) {
+          testProgress = { current: testState.current, total: 30 };
         }
         finalActions.push(action);
         break;
       }
       case "test_riasec_termine": {
-        // The LLM says test is done. We need to collect all responses from the conversation
-        // and compute scores. The responses are in the conversation history.
-        // We'll save this action and let the frontend trigger the score computation.
+        finalActions.push(action);
+        break;
+      }
+      case "synthese_en_cours": {
         finalActions.push(action);
         break;
       }
@@ -582,7 +686,13 @@ export async function gererChatLlm(input: LlmChatInput): Promise<LlmResponse> {
     finalActions.push({ type: "information" });
   }
 
-  // Persist the interaction
+  // Si le test vient de se terminer, ajouter les actions test_riasec_termine + synthese_en_cours
+  if (scoresCalcules) {
+    finalActions.push({ type: "test_riasec_termine", donnees: {} });
+    finalActions.push({ type: "synthese_en_cours", donnees: {} });
+  }
+
+  // Persist the interaction avec testState mis à jour
   const intention = await db.intention.findUnique({ where: { libelle: "information_generale" } });
   await db.interaction.create({
     data: {
@@ -594,6 +704,8 @@ export async function gererChatLlm(input: LlmChatInput): Promise<LlmResponse> {
         source: "llm",
         actions: finalActions.map((a) => a.type),
         testProgress: testProgress,
+        testState: testState, // stocke l'état du test pour la prochaine requête
+        testTermine: testTermine || !!scoresCalcules,
       }),
     },
   });
@@ -604,6 +716,11 @@ export async function gererChatLlm(input: LlmChatInput): Promise<LlmResponse> {
     profilMisAJour,
     testProgress,
     sourcesWeb,
+    scoresCalcules: scoresCalcules ? {
+      scores: scoresCalcules.scores as unknown as Record<string, number>,
+      dominant: scoresCalcules.dominant,
+      dominantLabel: RIASEC_DIMENSIONS[scoresCalcules.dominant].label,
+    } : undefined,
   };
 }
 

@@ -93,7 +93,9 @@ export type ActionType =
   | "afficher_liste_metiers"
   | "afficher_historique"
   | "afficher_glossaire"
-  | "suggestion";
+  | "suggestion"
+  | "synthese_en_cours"
+  | "test_riasec_termine";
 
 export interface DialogueAction {
   type: ActionType;

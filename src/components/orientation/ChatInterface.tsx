@@ -98,6 +98,7 @@ const NLU_INTENT_LABELS: Record<string, string> = {
   demarrage_profil: "Profil",
   information_generale: "Information",
   llm: "IA conversationnelle",
+  synthese: "Synthèse d'orientation",
 };
 
 export function ChatInterface() {
@@ -126,7 +127,7 @@ export function ChatInterface() {
   const [statsKey, setStatsKey] = useState(0); // pour rafraîchir la StatsCard
   const [llmMode, setLlmMode] = useState(true); // true = LLM conversationnel (par défaut), false = NLU mots-clés
   const [testInlineEnCours, setTestInlineEnCours] = useState<{ current: number; total: number } | null>(null);
-  const [reponsesInline, setReponsesInline] = useState<Record<number, number>>({});
+  const [syntheseEnCours, setSyntheseEnCours] = useState(false);
   const { theme, setTheme } = useTheme();
   const [dark, setDark] = useState(false);
 
@@ -294,8 +295,9 @@ export function ChatInterface() {
           let type: ActionType = "texte";
           switch (a.type) {
             case "profil_collecte": type = "texte"; break;
-            case "test_riasec_question": type = "afficher_filiere"; break; // placeholder, on gère spécifiquement
-            case "test_riasec_termine": type = "texte"; break;
+            case "test_riasec_question": type = "texte"; break; // géré par le testProgress
+            case "test_riasec_termine": type = "test_riasec_termine"; break;
+            case "synthese_en_cours": type = "synthese_en_cours"; break;
             case "recommandations_generees": type = "proposer_recommandations"; break;
             case "redirection_conseiller": type = "redirection_conseiller"; break;
             case "afficher_filiere": type = "afficher_details_filiere"; break;
@@ -316,95 +318,82 @@ export function ChatInterface() {
         };
         setMessages((prev) => [...prev, botMsg]);
 
-        // Gérer le test RIASEC inline
-        // D'abord, si on était déjà en train de passer le test, capturer la réponse de l'utilisateur
-        if (testInlineEnCours) {
-          // L'utilisateur répond à une question du test : extraire la valeur 0-4
-          // Accepte chiffre (0-4) ou langage naturel
-          let val: number | null = null;
-          const msgLower = msg.toLowerCase().trim();
-          const numMatch = msgLower.match(/\b([0-4])\b/);
-          if (numMatch) {
-            val = parseInt(numMatch[1]);
-          } else if (/tout a fait|totalement|completement|absolument|tres d'accord/.test(msgLower)) {
-            val = 4;
-          } else if (/plutot d'accord|d'accord|oui|oui tout|ca me correspond|j'aime|j aime/.test(msgLower)) {
-            val = 3;
-          } else if (/neutre|bof|moyen|mitige/.test(msgLower)) {
-            val = 2;
-          } else if (/plutot pas|pas vraiment|pas d'accord|non|bof non|pas trop/.test(msgLower)) {
-            val = 1;
-          } else if (/pas du tout|jamais|categoriquement|pas du tout d'accord|deteste/.test(msgLower)) {
-            val = 0;
-          }
-          if (val !== null) {
-            const currentOrdre = testInlineEnCours.current;
-            setReponsesInline((prev) => ({ ...prev, [currentOrdre]: val }));
-          }
-        }
-
+        // Mettre à jour la progression du test (contrôlée par le backend)
         if (data.testProgress) {
           setTestInlineEnCours(data.testProgress);
+        } else if (!data.actions?.some((a: { type: string }) => a.type === "test_riasec_question")) {
+          // Si pas de question de test dans les actions, le test n'est plus en cours
+          setTestInlineEnCours(null);
         }
 
-        // Si le test est terminé, calculer les scores
-        const testTermineAction = (data.actions || []).find((a: { type: string }) => a.type === "test_riasec_termine");
-        if (testTermineAction) {
-          // Récupérer les réponses les plus à jour
-          const reponsesFinal = { ...reponsesInline };
-          // Ajouter la réponse courante si elle existe (extraction améliorée)
-          if (testInlineEnCours) {
-            let val: number | null = null;
-            const msgLower = msg.toLowerCase().trim();
-            const numMatch = msgLower.match(/\b([0-4])\b/);
-            if (numMatch) {
-              val = parseInt(numMatch[1]);
-            } else if (/tout a fait|totalement|completement|absolument|tres d'accord/.test(msgLower)) {
-              val = 4;
-            } else if (/plutot d'accord|d'accord|oui|oui tout|ca me correspond|j'aime|j aime/.test(msgLower)) {
-              val = 3;
-            } else if (/neutre|bof|moyen|mitige/.test(msgLower)) {
-              val = 2;
-            } else if (/plutot pas|pas vraiment|pas d'accord|non|bof non|pas trop/.test(msgLower)) {
-              val = 1;
-            } else if (/pas du tout|jamais|categoriquement|pas du tout d'accord|deteste/.test(msgLower)) {
-              val = 0;
+        // Si les scores ont été calculés (test terminé), afficher le dialog de résultats
+        if (data.scoresCalcules) {
+          const userRes = await fetch(`/api/orientation/users?id=${utilisateur.id}`);
+          const updatedUser = userRes.ok ? await userRes.json() : utilisateur;
+          const top3 = (Object.keys(data.scoresCalcules.scores) as Array<keyof typeof data.scoresCalcules.scores>)
+            .sort((a, b) => data.scoresCalcules.scores[b] - data.scoresCalcules.scores[a])
+            .slice(0, 3)
+            .map((k) => ({
+              dim: k,
+              label: RIASEC_DIMENSIONS[k as RiasecDimension].label,
+              score: data.scoresCalcules!.scores[k],
+              description: RIASEC_DIMENSIONS[k as RiasecDimension].description,
+            }));
+          setLastTestResult({
+            utilisateur: updatedUser,
+            scores: data.scoresCalcules.scores as Record<RiasecDimension, number>,
+            dominant: data.scoresCalcules.dominant as RiasecDimension,
+            dominantLabel: data.scoresCalcules.dominantLabel,
+            top3,
+          });
+          setLastDominantLabel(data.scoresCalcules.dominantLabel);
+          setTestInlineEnCours(null);
+          toast.success(`Test RIASEC terminé ! Profil dominant : ${data.scoresCalcules.dominantLabel}`);
+        }
+
+        // Si la synthèse est en cours, déclencher la synthèse
+        const syntheseAction = (data.actions || []).find((a: { type: string }) => a.type === "synthese_en_cours");
+        if (syntheseAction) {
+          setSyntheseEnCours(true);
+          try {
+            const syntheseRes = await fetch("/api/orientation/synthese", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ utilisateurId: utilisateur.id, sessionId: session.id }),
+            });
+            if (syntheseRes.ok) {
+              const syntheseData = await syntheseRes.json();
+              // Stocker les recommandations
+              const recos = (syntheseData.recommandations || []) as RiasecRecoAffichage[];
+              const recosFilieres = (syntheseData.recommandationsFilieres || []) as FiliereRecoAffichage[];
+              setLastRecommandations(recos);
+              setLastRecommandationsFilieres(recosFilieres);
+              setLastDominantLabel(syntheseData.dominantLabel);
+              // Ajouter le message de synthèse
+              const syntheseMsg: ChatMessage = {
+                id: uid(),
+                role: "bot",
+                content: syntheseData.synthese,
+                timestamp: new Date().toISOString(),
+                intention: "synthese",
+                actions: [
+                  { type: "proposer_recommandations", texte: "", donnees: { recommandations: recos, recommandationsFilieres: recosFilieres, dominant: syntheseData.dominant } },
+                  { type: "suggestion", texte: "Exporter en PDF", donnees: { message: "Exporter" } },
+                  { type: "suggestion", texte: "Parler à un conseiller", donnees: { message: "Je veux parler à un conseiller humain" } },
+                ],
+              };
+              setMessages((prev) => [...prev, syntheseMsg]);
+              // Ouvrir le dialog de résultats
+              setShowResult(true);
             }
-            if (val !== null) {
-              reponsesFinal[testInlineEnCours.current] = val;
-            }
-          }
-          if (Object.keys(reponsesFinal).length > 0) {
-            try {
-              const rr = await fetch("/api/orientation/riasec-inline", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ utilisateurId: utilisateur.id, reponses: reponsesFinal }),
-              });
-              if (rr.ok) {
-                const result = await rr.json();
-                const userRes = await fetch(`/api/orientation/users?id=${utilisateur.id}`);
-                const updatedUser = userRes.ok ? await userRes.json() : utilisateur;
-                setLastTestResult({
-                  utilisateur: updatedUser,
-                  scores: result.scores,
-                  dominant: result.dominant,
-                  dominantLabel: result.dominantLabel,
-                  top3: result.top3,
-                });
-                setLastDominantLabel(result.dominantLabel);
-                setShowResult(true);
-                setTestInlineEnCours(null);
-                setReponsesInline({});
-                toast.success(`Test RIASEC terminé ! Profil dominant : ${result.dominantLabel}`);
-              }
-            } catch {
-              /* ignore */
-            }
+          } catch {
+            toast.error("Erreur lors de la synthèse");
+          } finally {
+            setSyntheseEnCours(false);
           }
         }
 
-        // Si recommandations générées, stocker
+        // Si recommandations générées directement, stocker
         const recoAction = (data.actions || []).find((a: { type: string }) => a.type === "recommandations_generees");
         if (recoAction?.donnees) {
           const recos = (recoAction.donnees.recommandations as RiasecRecoAffichage[]) || [];
@@ -442,7 +431,7 @@ export function ChatInterface() {
     } finally {
       setLoading(false);
     }
-  }, [input, utilisateur, session, loading, llmMode, messages, testInlineEnCours, reponsesInline]);
+  }, [input, utilisateur, session, loading, llmMode, messages, testInlineEnCours]);
 
   const handleAction = useCallback((action: DialogueAction) => {
     switch (action.type) {
@@ -466,6 +455,11 @@ export function ChatInterface() {
         break;
       case "suggestion": {
         const msg = (action.donnees?.message as string) || action.texte;
+        // Cas spécial : "Exporter" ouvre le dialog d'export PDF
+        if (msg && /export/i.test(msg)) {
+          setShowExport(true);
+          break;
+        }
         if (msg) envoyerMessage(msg);
         break;
       }
@@ -920,7 +914,7 @@ export function ChatInterface() {
                   sessionId={session?.id}
                 />
               ))}
-              {loading && (
+              {loading && !syntheseEnCours && (
                 <div className="flex items-end gap-2">
                   <BotAvatar />
                   <div className="chat-bubble-bot px-3 py-2.5">
@@ -928,6 +922,33 @@ export function ChatInterface() {
                       <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
                       <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
                       <span className="typing-dot h-1.5 w-1.5 rounded-full bg-muted-foreground" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Écran de synthèse — animation de chargement */}
+              {syntheseEnCours && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="flex flex-col items-center gap-4 max-w-sm">
+                    <div className="relative">
+                      <div className="h-16 w-16 rounded-full border-4 border-primary/20 border-t-primary animate-spin" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Sparkles className="h-6 w-6 text-primary animate-pulse" />
+                      </div>
+                    </div>
+                    <div className="text-center space-y-1.5">
+                      <p className="font-semibold text-sm bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+                        Synthèse de vos résultats en cours...
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        J'analyse votre profil, vos réponses, votre personnalité et votre objectif pour vous donner la meilleure orientation possible. ✨
+                      </p>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: "150ms" }} />
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary animate-bounce" style={{ animationDelay: "300ms" }} />
                     </div>
                   </div>
                 </div>
