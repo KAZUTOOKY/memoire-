@@ -123,7 +123,7 @@ export function ChatInterface() {
   const [lastRecommandationsFilieres, setLastRecommandationsFilieres] = useState<FiliereRecoAffichage[]>([]);
   const [lastDominantLabel, setLastDominantLabel] = useState<string | undefined>(undefined);
   const [statsKey, setStatsKey] = useState(0); // pour rafraîchir la StatsCard
-  const [llmMode, setLlmMode] = useState(false); // false = NLU mots-clés, true = LLM conversationnel
+  const [llmMode, setLlmMode] = useState(true); // true = LLM conversationnel (par défaut), false = NLU mots-clés
   const [testInlineEnCours, setTestInlineEnCours] = useState<{ current: number; total: number } | null>(null);
   const [reponsesInline, setReponsesInline] = useState<Record<number, number>>({});
   const { theme, setTheme } = useTheme();
@@ -200,11 +200,11 @@ export function ChatInterface() {
           id: uid(),
           role: "bot",
           content:
-            "Bonjour 👋 ! Je suis **OriensCI**, votre assistant d'orientation académique et professionnelle en Côte d'Ivoire.\n\nPour bien vous accompagner, je vous propose de :\n• 📋 Créer votre **profil** (niveau, filière, ville)\n• 🧭 Passer le **test RIASEC** pour identifier vos intérêts\n• 💬 Me poser une **question libre** sur une filière, un métier ou des débouchés\n\nComment souhaitez-vous commencer ?",
+            "Bonjour 👋 ! Je suis **OriensCI**, votre assistant d'orientation académique et professionnelle en Côte d'Ivoire.\n\n🤖 **Mode IA conversationnelle activé** — je comprends le langage naturel et je vous guide pas à pas. Vous pouvez me parler librement, je vous poserai des questions pour mieux vous connaître.\n\nPour commencer, dites-moi simplement : quel est votre **niveau d'études** et dans quelle **ville** êtes-vous ?",
           timestamp: new Date().toISOString(),
           actions: [
-            { type: "demarrer_profil", texte: "Créer mon profil" },
-            { type: "proposer_test", texte: "Passer le test RIASEC" },
+            { type: "suggestion", texte: "Je suis en Terminale", donnees: { message: "Je suis en terminale" } },
+            { type: "suggestion", texte: "Je veux passer le test RIASEC", donnees: { message: "Je veux passer le test RIASEC" } },
           ],
         },
       ]);
