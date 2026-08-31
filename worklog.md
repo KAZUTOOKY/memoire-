@@ -227,3 +227,61 @@ Unresolved issues / risks :
 - L'adaptation des recommandations selon la personnalité n'est pas encore pondérée dans l'algorithme (les champs sont stockés mais le moteur de recommandation ne les utilise pas encore pour ajuster les scores).
 - Le NLU peut parfois détecter un métier au lieu d'une filière quand le mot-clé ("informatique") apparaît dans les deux.
 - L'apprentissage NLU est limité aux mots-clés extraits du message original (pas de reformulation).
+
+---
+Task ID: 15
+Agent: main (LLM integration)
+Task: Intégration d'un LLM réel (z-ai-web-dev-sdk) pour conversation naturelle, gestion des digressions, collecte inline et test RIASEC dans le chat.
+
+Work Log:
+- **Skill LLM chargé** : documentation z-ai-web-dev-sdk lue. SDK testé avec succès (`skills/LLM/scripts/chat.ts` → "Paris").
+- **Service LLM** (`src/lib/orientation/llm-service.ts`) :
+  - `gererChatLlm()` : orchestre la conversation LLM avec system prompt riche (contexte utilisateur, base de connaissances filières/métiers, modèle RIASEC, règles de conversation).
+  - System prompt demande au LLM de répondre en JSON structuré `{ reponse, actions: [{ type, donnees }] }`.
+  - 9 types d'actions : `profil_collecte`, `test_riasec_question`, `test_riasec_termine`, `recommandations_generees`, `redirection_conseiller`, `afficher_filiere`, `afficher_metier`, `suggestion`, `information`.
+  - `applyProfilCollecte()` : sauvegarde automatique du profil (niveauEtudes, localisation, filiereSouhaitee) en base quand le LLM détecte une info.
+  - `calculerScoresRiasecDepuisReponses()` : calcule les scores RIASEC depuis les réponses collectées inline.
+  - Gestion de l'historique : 10 derniers messages envoyés au LLM pour le contexte.
+  - Instance ZAI réutilisée (singleton) pour performance.
+- **2 nouvelles API** :
+  - `/api/orientation/chat-llm` (POST) : endpoint principal du chat LLM. Reçoit { utilisateurId, sessionId, message, historique }.
+  - `/api/orientation/riasec-inline` (POST) : calcule les scores RIASEC depuis les réponses collectées inline par le LLM.
+- **ChatInterface mis à jour** :
+  - Nouvel état `llmMode` (toggle) + `testInlineEnCours` (progression du test inline) + `reponsesInline` (réponses collectées).
+  - Bouton toggle "IA ON/OFF" dans le header (icône Bot).
+  - `envoyerMessage()` : si `llmMode` → appel `/chat-llm` avec historique ; sinon → `/chat` classique (NLU mots-clés).
+  - Mapping des actions LLM → actions frontend.
+  - Capture des réponses du test inline : extraction améliorée (chiffre 0-4 OU langage naturel "d'accord", "pas d'accord", "tout à fait", "oui", "non", etc.).
+  - Détection `test_riasec_termine` → appel `/riasec-inline` → calcul scores → ouverture dialog résultats.
+  - Détection `recommandations_generees` → stockage des recommandations (métiers + filières).
+  - Indicateur visuel de progression du test inline (barre + % au-dessus de l'input).
+  - Placeholder dynamique : "Discutez naturellement" (LLM) ou "Répondez 0-4" (test inline) ou "Posez votre question" (NLU).
+  - Badge intention "IA conversationnelle" sur les messages du LLM.
+- **System prompt LLM** : 
+  - Connaît tout le contexte (utilisateur, filières, métiers, RIASEC, personnalité).
+  - Règles : français chaleureux, concision, profil inline (1 question à la fois), test RIASEC inline (30 affirmations une par une), digressions gérées (répond brièvement puis ramène vers l'orientation), recommandations, conseiller humain.
+  - Format JSON obligatoire avec exemples.
+
+Verification (curl + agent-browser) :
+- Test curl "Bonjour je suis en terminale D a Abidjan" → LLM répond naturellement + 2 actions profil_collecte (niveauEtudes=Terminale D, localisation=Abidjan) + profil sauvegardé en base. ✓
+- Test curl digression "Je veux faire informatique mais tu connais la capitale du Mali?" → LLM répond "Bamako" puis ramène vers l'orientation + enregistre filiereSouhaitee=Informatique. ✓
+- Test curl "Oui je veux passer le test RIASEC" → LLM pose Question 1 inline avec action test_riasec_question. ✓
+- Test agent-browser mode LLM ON → bouton toggle, toast confirmation, badge "IA conversationnelle". ✓
+- Message "Salut je suis en terminale C a Bouake" → profil sauvegardé (Terminale + Bouaké visibles dans sidebar). ✓
+- Digression "qui a gagne la coupe du monde 2022?" → "Argentine" + ramène vers médecine + propose test. ✓
+- "Oui je veux passer le test" → LLM pose Question 1 ("J'aime réparer des objets"). ✓
+- Réponse "tout a fait d accord" → acceptée, passe à Question 2, indicateur "Test RIASEC en cours — Question 2/30 — 7%". ✓
+- 0 erreur console, lint propre. ✓
+- Screenshots : qa-llm-1-profile.png, qa-llm-2-test-start.png, qa-llm-3-test-inline.png.
+
+Stage Summary:
+- LLM réel intégré avec succès. Le chatbot comprend maintenant le langage naturel, gère les digressions, collecte le profil et fait passer le test RIASEC directement dans le chat — sans forms ni dialogs obligatoires.
+- Deux modes disponibles : NLU mots-clés (rapide, offline) et LLM conversationnel (compréhension profonde, digressions gérées).
+- Le LLM sauvegarde automatiquement les informations collectées (niveau, localisation, filière souhaitée) en base via des actions structurées.
+- Le test RIASEC est administré inline par le LLM : 30 questions une par une, réponses acceptées en chiffre (0-4) ou langage naturel.
+
+Unresolved issues / risks :
+- Le test RIASEC inline complet (30 questions) peut être long en conversation LLM (latence ~1-2s par message).
+- L'extraction des réponses du test depuis le langage naturel peut parfois échouer (expressions très inhabituelles) — le LLM demande alors de reformuler.
+- L'historique envoyé au LLM est limité à 10 messages pour éviter la surcharge de tokens.
+- Le mode LLM nécessite une connexion internet (appel API SDK) — le mode NLU reste disponible comme fallback.

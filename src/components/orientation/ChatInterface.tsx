@@ -29,6 +29,8 @@ import {
   History,
   BookMarked,
   Brain,
+  Sparkles as SparklesIcon,
+  Bot,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -59,6 +61,7 @@ import type {
   Session,
   ChatMessage,
   DialogueAction,
+  ActionType,
   Filiere,
   Metier,
   RiasecRecoAffichage,
@@ -93,6 +96,7 @@ const NLU_INTENT_LABELS: Record<string, string> = {
   remerciement: "Remerciement",
   demarrage_profil: "Profil",
   information_generale: "Information",
+  llm: "IA conversationnelle",
 };
 
 export function ChatInterface() {
@@ -119,6 +123,9 @@ export function ChatInterface() {
   const [lastRecommandationsFilieres, setLastRecommandationsFilieres] = useState<FiliereRecoAffichage[]>([]);
   const [lastDominantLabel, setLastDominantLabel] = useState<string | undefined>(undefined);
   const [statsKey, setStatsKey] = useState(0); // pour rafraîchir la StatsCard
+  const [llmMode, setLlmMode] = useState(false); // false = NLU mots-clés, true = LLM conversationnel
+  const [testInlineEnCours, setTestInlineEnCours] = useState<{ current: number; total: number } | null>(null);
+  const [reponsesInline, setReponsesInline] = useState<Record<number, number>>({});
   const { theme, setTheme } = useTheme();
   const [dark, setDark] = useState(false);
 
@@ -267,23 +274,163 @@ export function ChatInterface() {
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
     try {
-      const res = await fetch("/api/orientation/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ utilisateurId: utilisateur.id, sessionId: session.id, message: msg }),
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      const botMsg: ChatMessage = {
-        id: uid(),
-        role: "bot",
-        content: data.reponseSysteme,
-        timestamp: new Date().toISOString(),
-        intention: data.intentionDetectee,
-        confidence: data.confidence,
-        actions: data.actions,
-      };
-      setMessages((prev) => [...prev, botMsg]);
+      if (llmMode) {
+        // Mode LLM : appel à /chat-llm avec l'historique récent
+        const historique = messages.slice(-10).map((m) => ({
+          role: (m.role === "user" ? "user" : "assistant") as "user" | "assistant",
+          content: m.content,
+        }));
+        const res = await fetch("/api/orientation/chat-llm", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ utilisateurId: utilisateur.id, sessionId: session.id, message: msg, historique }),
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        // Convertir les actions LLM en actions du frontend
+        const actions: DialogueAction[] = (data.actions || []).map((a: { type: string; donnees?: Record<string, unknown> }) => {
+          // Mapper les types LLM vers les types frontend
+          let type: ActionType = "texte";
+          switch (a.type) {
+            case "profil_collecte": type = "texte"; break;
+            case "test_riasec_question": type = "afficher_filiere"; break; // placeholder, on gère spécifiquement
+            case "test_riasec_termine": type = "texte"; break;
+            case "recommandations_generees": type = "proposer_recommandations"; break;
+            case "redirection_conseiller": type = "redirection_conseiller"; break;
+            case "afficher_filiere": type = "afficher_details_filiere"; break;
+            case "afficher_metier": type = "afficher_metier"; break;
+            case "suggestion": type = "suggestion"; break;
+            default: type = "texte";
+          }
+          return { type, texte: "", donnees: a.donnees };
+        });
+        const botMsg: ChatMessage = {
+          id: uid(),
+          role: "bot",
+          content: data.reponse,
+          timestamp: new Date().toISOString(),
+          intention: "llm",
+          actions,
+        };
+        setMessages((prev) => [...prev, botMsg]);
+
+        // Gérer le test RIASEC inline
+        // D'abord, si on était déjà en train de passer le test, capturer la réponse de l'utilisateur
+        if (testInlineEnCours) {
+          // L'utilisateur répond à une question du test : extraire la valeur 0-4
+          // Accepte chiffre (0-4) ou langage naturel
+          let val: number | null = null;
+          const msgLower = msg.toLowerCase().trim();
+          const numMatch = msgLower.match(/\b([0-4])\b/);
+          if (numMatch) {
+            val = parseInt(numMatch[1]);
+          } else if (/tout a fait|totalement|completement|absolument|tres d'accord/.test(msgLower)) {
+            val = 4;
+          } else if (/plutot d'accord|d'accord|oui|oui tout|ca me correspond|j'aime|j aime/.test(msgLower)) {
+            val = 3;
+          } else if (/neutre|bof|moyen|mitige/.test(msgLower)) {
+            val = 2;
+          } else if (/plutot pas|pas vraiment|pas d'accord|non|bof non|pas trop/.test(msgLower)) {
+            val = 1;
+          } else if (/pas du tout|jamais|categoriquement|pas du tout d'accord|deteste/.test(msgLower)) {
+            val = 0;
+          }
+          if (val !== null) {
+            const currentOrdre = testInlineEnCours.current;
+            setReponsesInline((prev) => ({ ...prev, [currentOrdre]: val }));
+          }
+        }
+
+        if (data.testProgress) {
+          setTestInlineEnCours(data.testProgress);
+        }
+
+        // Si le test est terminé, calculer les scores
+        const testTermineAction = (data.actions || []).find((a: { type: string }) => a.type === "test_riasec_termine");
+        if (testTermineAction) {
+          // Récupérer les réponses les plus à jour
+          const reponsesFinal = { ...reponsesInline };
+          // Ajouter la réponse courante si elle existe (extraction améliorée)
+          if (testInlineEnCours) {
+            let val: number | null = null;
+            const msgLower = msg.toLowerCase().trim();
+            const numMatch = msgLower.match(/\b([0-4])\b/);
+            if (numMatch) {
+              val = parseInt(numMatch[1]);
+            } else if (/tout a fait|totalement|completement|absolument|tres d'accord/.test(msgLower)) {
+              val = 4;
+            } else if (/plutot d'accord|d'accord|oui|oui tout|ca me correspond|j'aime|j aime/.test(msgLower)) {
+              val = 3;
+            } else if (/neutre|bof|moyen|mitige/.test(msgLower)) {
+              val = 2;
+            } else if (/plutot pas|pas vraiment|pas d'accord|non|bof non|pas trop/.test(msgLower)) {
+              val = 1;
+            } else if (/pas du tout|jamais|categoriquement|pas du tout d'accord|deteste/.test(msgLower)) {
+              val = 0;
+            }
+            if (val !== null) {
+              reponsesFinal[testInlineEnCours.current] = val;
+            }
+          }
+          if (Object.keys(reponsesFinal).length > 0) {
+            try {
+              const rr = await fetch("/api/orientation/riasec-inline", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ utilisateurId: utilisateur.id, reponses: reponsesFinal }),
+              });
+              if (rr.ok) {
+                const result = await rr.json();
+                const userRes = await fetch(`/api/orientation/users?id=${utilisateur.id}`);
+                const updatedUser = userRes.ok ? await userRes.json() : utilisateur;
+                setLastTestResult({
+                  utilisateur: updatedUser,
+                  scores: result.scores,
+                  dominant: result.dominant,
+                  dominantLabel: result.dominantLabel,
+                  top3: result.top3,
+                });
+                setLastDominantLabel(result.dominantLabel);
+                setShowResult(true);
+                setTestInlineEnCours(null);
+                setReponsesInline({});
+                toast.success(`Test RIASEC terminé ! Profil dominant : ${result.dominantLabel}`);
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+
+        // Si recommandations générées, stocker
+        const recoAction = (data.actions || []).find((a: { type: string }) => a.type === "recommandations_generees");
+        if (recoAction?.donnees) {
+          const recos = (recoAction.donnees.recommandations as RiasecRecoAffichage[]) || [];
+          const recosFilieres = (recoAction.donnees.recommandationsFilieres as FiliereRecoAffichage[]) || [];
+          setLastRecommandations(recos);
+          setLastRecommandationsFilieres(recosFilieres);
+          setLastDominantLabel(recoAction.donnees.dominantLabel as string | undefined);
+        }
+      } else {
+        // Mode NLU classique
+        const res = await fetch("/api/orientation/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ utilisateurId: utilisateur.id, sessionId: session.id, message: msg }),
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const botMsg: ChatMessage = {
+          id: uid(),
+          role: "bot",
+          content: data.reponseSysteme,
+          timestamp: new Date().toISOString(),
+          intention: data.intentionDetectee,
+          confidence: data.confidence,
+          actions: data.actions,
+        };
+        setMessages((prev) => [...prev, botMsg]);
+      }
       // Rafraîchir l'utilisateur (scores éventuels)
       const ur = await fetch(`/api/orientation/users?id=${utilisateur.id}`);
       if (ur.ok) setUtilisateur(await ur.json());
@@ -293,7 +440,7 @@ export function ChatInterface() {
     } finally {
       setLoading(false);
     }
-  }, [input, utilisateur, session, loading]);
+  }, [input, utilisateur, session, loading, llmMode, messages, testInlineEnCours, reponsesInline]);
 
   const handleAction = useCallback((action: DialogueAction) => {
     switch (action.type) {
@@ -647,6 +794,23 @@ export function ChatInterface() {
             >
               <Plus className="h-4 w-4" />
             </Button>
+            {/* Toggle mode LLM */}
+            <button
+              type="button"
+              onClick={() => {
+                setLlmMode((v) => !v);
+                toast.info(llmMode ? "Mode classique (mots-clés) activé" : "Mode IA conversationnelle activé — je comprends mieux et je pose les questions directement dans le chat !");
+              }}
+              className={`h-9 px-2.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-all border ${
+                llmMode
+                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                  : "bg-background border-border text-muted-foreground hover:bg-muted"
+              }`}
+              title={llmMode ? "Désactiver le mode IA conversationnelle" : "Activer le mode IA conversationnelle (LLM)"}
+            >
+              <Bot className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{llmMode ? "IA ON" : "IA OFF"}</span>
+            </button>
             <Button
               variant="ghost"
               size="icon"
@@ -784,6 +948,25 @@ export function ChatInterface() {
 
             {/* Input */}
             <div className="border-t bg-background/80 backdrop-blur p-2 sm:p-3 shrink-0">
+              {/* Indicateur de progression du test RIASEC inline */}
+              {llmMode && testInlineEnCours && (
+                <div className="mb-2 px-2 py-1.5 rounded-md bg-primary/10 border border-primary/30 flex items-center gap-2 text-xs">
+                  <Compass className="h-3.5 w-3.5 text-primary animate-pulse" />
+                  <span className="font-medium text-primary">Test RIASEC en cours</span>
+                  <span className="text-muted-foreground">— Question {testInlineEnCours.current}/{testInlineEnCours.total}</span>
+                  <div className="ml-auto flex items-center gap-1">
+                    <div className="h-1.5 w-20 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all"
+                        style={{ width: `${(testInlineEnCours.current / testInlineEnCours.total) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] tabular-nums text-muted-foreground">
+                      {Math.round((testInlineEnCours.current / testInlineEnCours.total) * 100)}%
+                    </span>
+                  </div>
+                </div>
+              )}
               <form
                 onSubmit={(e) => { e.preventDefault(); envoyerMessage(); }}
                 className="flex items-end gap-2"
@@ -798,7 +981,13 @@ export function ChatInterface() {
                       envoyerMessage();
                     }
                   }}
-                  placeholder="Posez votre question (filière, métier, débouchés, recommandation…)"
+                  placeholder={
+                    llmMode
+                      ? testInlineEnCours
+                        ? `Répondez 0 (pas du tout) à 4 (tout à fait) — Question ${testInlineEnCours.current}/${testInlineEnCours.total}`
+                        : "Discutez naturellement avec l'IA (posez vos questions, l'IA vous guide)"
+                      : "Posez votre question (filière, métier, débouchés, recommandation…)"
+                  }
                   rows={1}
                   className="min-h-[42px] max-h-32 resize-none text-sm"
                   disabled={loading || !utilisateur}
