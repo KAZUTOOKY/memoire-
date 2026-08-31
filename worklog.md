@@ -285,3 +285,27 @@ Unresolved issues / risks :
 - L'extraction des réponses du test depuis le langage naturel peut parfois échouer (expressions très inhabituelles) — le LLM demande alors de reformuler.
 - L'historique envoyé au LLM est limité à 10 messages pour éviter la surcharge de tokens.
 - Le mode LLM nécessite une connexion internet (appel API SDK) — le mode NLU reste disponible comme fallback.
+
+---
+Task ID: 16
+Agent: main (fix questions qui se répètent)
+Task: Corriger le bug des questions RIASEC qui se répètent + bug 500 sur testEnCours.reponses.
+
+Work Log:
+- **Bug 500 identifié** : `testEnCours.reponses` était `undefined` quand le testProgress était stocké dans la DB (pas de champ reponses). Le system prompt plantait à `Object.keys(testEnCours.reponses)`.
+  - Fix : ajout d'un guard `testEnCours.reponses ? Object.keys(testEnCours.reponses).length : 0`.
+- **Bug questions qui se répètent identifié** : le LLM improvisait ses propres questions RIASEC au lieu d'utiliser la liste officielle des 30 questions. Il pouvait reformuler, répéter, ou sauter des questions.
+  - Fix 1 : ajout des 30 questions officielles dans le system prompt (liste complète avec numérotation et dimension).
+  - Fix 2 : instructions renforcées — "pose les 30 affirmations EXACTEMENT COMME LISTÉES, DANS L'ORDRE, UNE PAR UNE. Ne improvise JAMAIS. Ne répète JAMAIS. Ne saute JAMAIS. Ne reformule pas."
+  - Fix 3 : instruction d'inclure l'énoncé complet dans le champ "reponse" du JSON (pas juste "voici la question").
+
+Verification (agent-browser) :
+- Fresh onboarding + "Je veux passer le test RIASEC" → Q1 : "J'aime réparer des objets ou les démonter pour comprendre comment ils fonctionnent." ✓
+- Réponse "3" → Q2 : "Je préfère travailler en plein air plutôt qu'assis derrière un bureau." ✓ (officielle, sans répétition)
+- Réponse "4" → Q3 : "J'aime utiliser des outils, des machines ou du matériel technique." ✓ (officielle, sans répétition)
+- Plus aucune erreur 500 dans le dev log. ✓
+- 0 erreur console, lint propre. ✓
+
+Stage Summary:
+- Les 30 questions RIASEC sont maintenant posées dans l'ordre exact, sans répétition, sans improvisation.
+- Le LLM utilise la liste officielle fournie dans le system prompt.
