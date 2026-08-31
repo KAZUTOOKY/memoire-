@@ -31,7 +31,8 @@ export interface DialogueAction {
     | "afficher_filiere"
     | "afficher_metier"
     | "afficher_liste_filieres"
-    | "afficher_liste_metiers";
+    | "afficher_liste_metiers"
+    | "suggestion";
   texte: string;
   // données complémentaires sérialisables (renvoyées au client pour rendu enrichi)
   donnees?: Record<string, unknown>;
@@ -164,34 +165,60 @@ export async function gererDialogue(input: DialogueInput): Promise<DialogueOutpu
       actions = [{ type: "texte", texte: reponseSysteme }];
       if (!profilDeBaseRenseigne) {
         actions.push({ type: "demarrer_profil", texte: "Créer mon profil" });
+        actions.push({ type: "suggestion", texte: "Passer le test RIASEC", donnees: { message: "Je veux passer le test RIASEC" } });
+      } else if (!profilComplet) {
+        actions.push({ type: "proposer_test", texte: "Passer le test RIASEC" });
+      } else {
+        actions.push({ type: "suggestion", texte: "Voir mes recommandations", donnees: { message: "Donnez-moi des recommandations personnalisées" } });
+        actions.push({ type: "suggestion", texte: "Voir mon profil", donnees: { message: "Montrez-moi mon profil" } });
       }
+      actions.push({ type: "suggestion", texte: "Voir les filières", donnees: { message: "Quelles filières proposez-vous ?" } });
       break;
     }
 
     case "remerciement": {
       reponseSysteme = "Avec plaisir ! 🙌 N'hésitez pas si vous avez d'autres questions — sur une filière, un métier, les débouchés, ou pour relancer une recommandation.";
-      actions = [{ type: "texte", texte: reponseSysteme }];
+      actions = [
+        { type: "texte", texte: reponseSysteme },
+        { type: "suggestion", texte: "Mes recommandations", donnees: { message: "Donnez-moi des recommandations personnalisées" } },
+        { type: "suggestion", texte: "Voir les métiers", donnees: { message: "Quels métiers proposez-vous ?" } },
+      ];
       break;
     }
 
     case "information_generale": {
-      reponseSysteme = [
-        "Je suis **OriensCI**, un chatbot d'aide à l'orientation académique et professionnelle adapté au contexte ivoirien.",
-        "",
-        "Voici ce que je peux faire pour vous :",
-        "• 📋 Créer votre **profil** (niveau, filière, localisation)",
-        "• 🧭 Vous faire passer le **test RIASEC** (modèle de Holland) pour identifier vos intérêts",
-        "• 💬 Répondre à vos **questions** sur les filières, métiers et débouchés",
-        "• 🎯 Générer des **recommandations personnalisées** (score de compatibilité + justification)",
-        "• 👤 Vous **rediriger vers un conseiller humain** si besoin",
-        "",
-        "Comment souhaitez-vous commencer ?",
-      ].join("\n");
-      actions = [
-        { type: "texte", texte: reponseSysteme },
-        { type: "demarrer_profil", texte: "Créer mon profil" },
-        { type: "proposer_test", texte: "Passer le test RIASEC" },
-      ];
+      // Différencier "vraie demande d'info générale" (mot-clés présents) vs "entrée inconnue" (confidence ≈ 0)
+      const estDemandeDAide = nlu.confidence > 0.05
+        || /\b(aide|help|comment|qui es|qu'est-ce|presentation|pr\u00e9sentation|fonctionne)\b/i.test(message);
+      if (estDemandeDAide) {
+        reponseSysteme = [
+          "Je suis **OriensCI**, un chatbot d'aide à l'orientation académique et professionnelle adapté au contexte ivoirien.",
+          "",
+          "Voici ce que je peux faire pour vous :",
+          "• 📋 Créer votre **profil** (niveau, filière, localisation)",
+          "• 🧭 Vous faire passer le **test RIASEC** (modèle de Holland) pour identifier vos intérêts",
+          "• 💬 Répondre à vos **questions** sur les filières, métiers et débouchés",
+          "• 🎯 Générer des **recommandations personnalisées** (score de compatibilité + justification)",
+          "• 👤 Vous **rediriger vers un conseiller humain** si besoin",
+          "",
+          "Comment souhaitez-vous commencer ?",
+        ].join("\n");
+        actions = [
+          { type: "texte", texte: reponseSysteme },
+          { type: "demarrer_profil", texte: "Créer mon profil" },
+          { type: "proposer_test", texte: "Passer le test RIASEC" },
+        ];
+      } else {
+        // Entrée non reconnue — message court + suggestions
+        reponseSysteme = "Je n'ai pas bien compris votre demande 🤔. Pouvez-vous reformuler ? Voici quelques pistes :";
+        actions = [
+          { type: "texte", texte: reponseSysteme },
+          { type: "suggestion", texte: "Voir les filières", donnees: { message: "Quelles filières proposez-vous ?" } },
+          { type: "suggestion", texte: "Voir les métiers", donnees: { message: "Quels métiers proposez-vous ?" } },
+          { type: "suggestion", texte: "Mes recommandations", donnees: { message: "Donnez-moi des recommandations personnalisées" } },
+          { type: "suggestion", texte: "Parler à un conseiller", donnees: { message: "Je veux parler à un conseiller humain" } },
+        ];
+      }
       break;
     }
 

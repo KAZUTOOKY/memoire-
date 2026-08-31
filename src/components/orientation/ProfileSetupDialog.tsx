@@ -56,6 +56,10 @@ export function ProfileSetupDialog({ open, onOpenChange, utilisateur, filieres, 
       setNiveau(utilisateur.niveauEtudes ?? "");
       setFiliereId(utilisateur.filiereActuelleId ?? "__aucune__");
       setLocalisation(utilisateur.localisation ?? "");
+    } else {
+      setNiveau("");
+      setFiliereId("__aucune__");
+      setLocalisation("");
     }
   }, [utilisateur, open]);
 
@@ -97,7 +101,7 @@ export function ProfileSetupDialog({ open, onOpenChange, utilisateur, filieres, 
         <div className="space-y-4 py-2">
           <div className="space-y-2">
             <Label htmlFor="niveau">Niveau d'études actuel</Label>
-            <Select value={niveau || undefined} onValueChange={setNiveau}>
+            <Select value={niveau} onValueChange={setNiveau}>
               <SelectTrigger id="niveau"><SelectValue placeholder="Sélectionnez votre niveau" /></SelectTrigger>
               <SelectContent>
                 {NIVEAUX.map((n) => <SelectItem key={n.value} value={n.value}>{n.label}</SelectItem>)}
@@ -118,7 +122,7 @@ export function ProfileSetupDialog({ open, onOpenChange, utilisateur, filieres, 
 
           <div className="space-y-2">
             <Label htmlFor="ville">Localisation (ville)</Label>
-            <Select value={localisation || undefined} onValueChange={setLocalisation}>
+            <Select value={localisation} onValueChange={setLocalisation}>
               <SelectTrigger id="ville"><SelectValue placeholder="Votre ville en Côte d'Ivoire" /></SelectTrigger>
               <SelectContent className="max-h-72">
                 {VILLES_CI.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}

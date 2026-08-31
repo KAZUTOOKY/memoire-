@@ -20,15 +20,25 @@ import {
   Sun,
   Menu,
   X,
+  Plus,
+  RotateCcw,
+  GitCompareArrows,
+  FileDown,
+  Trophy,
+  MessageCircle,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { MessageMarkdown } from "./MessageMarkdown";
 import { ProfileSetupDialog } from "./ProfileSetupDialog";
 import { RiasecTestDialog } from "./RiasecTestDialog";
+import { RiasecResultDialog } from "./RiasecResultDialog";
 import { CounselorDialog } from "./CounselorDialog";
 import { RecommendationsCard } from "./RecommendationsCard";
 import { ProfileSummary } from "./ProfileSummary";
+import { OnboardingStepper, calculerEtape } from "./OnboardingStepper";
+import { CompareFilieresDialog } from "./CompareFilieresDialog";
+import { ExportRecommandationsDialog } from "./ExportRecommandationsDialog";
 import {
   RIASEC_DIMENSIONS,
   RIASEC_ORDER,
@@ -43,6 +53,14 @@ import type {
   Metier,
   RiasecRecoAffichage,
 } from "@/lib/orientation/types";
+
+interface TestResult {
+  utilisateur: Utilisateur;
+  scores: Record<RiasecDimension, number>;
+  dominant: RiasecDimension;
+  dominantLabel: string;
+  top3: Array<{ dim: RiasecDimension; label: string; score: number; description: string }>;
+}
 
 const STORAGE_KEY = "oriensci_ctx_v1";
 
@@ -77,8 +95,14 @@ export function ChatInterface() {
   const [showProfile, setShowProfile] = useState(false);
   const [showTest, setShowTest] = useState(false);
   const [showCounselor, setShowCounselor] = useState(false);
+  const [showResult, setShowResult] = useState(false);
+  const [showCompare, setShowCompare] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [lastTestResult, setLastTestResult] = useState<TestResult | null>(null);
+  const [lastRecommandations, setLastRecommandations] = useState<RiasecRecoAffichage[]>([]);
+  const [lastDominantLabel, setLastDominantLabel] = useState<string | undefined>(undefined);
   const { theme, setTheme } = useTheme();
   const [dark, setDark] = useState(false);
 
@@ -268,10 +292,15 @@ export function ChatInterface() {
       case "proposer_recommandations":
         // déjà affiché inline ; on ne fait rien de plus
         break;
+      case "suggestion": {
+        const msg = (action.donnees?.message as string) || action.texte;
+        if (msg) envoyerMessage(msg);
+        break;
+      }
       default:
         break;
     }
-  }, []);
+  }, [envoyerMessage]);
 
   const demanderRecommandations = useCallback(async () => {
     if (!utilisateur) return;
@@ -294,6 +323,8 @@ export function ChatInterface() {
         secteur: r.metier.secteurActivite,
         salaire: r.metier.salaireMoyen,
       }));
+      setLastRecommandations(recos);
+      setLastDominantLabel(data.dominantLabel);
       const botMsg: ChatMessage = {
         id: uid(),
         role: "bot",
@@ -393,14 +424,10 @@ export function ChatInterface() {
     }
   }, [filieres, utilisateur, session]);
 
-  const onTestCompleted = useCallback((result: {
-    utilisateur: Utilisateur;
-    scores: Record<RiasecDimension, number>;
-    dominant: RiasecDimension;
-    dominantLabel: string;
-    top3: Array<{ dim: RiasecDimension; label: string; score: number; description: string }>;
-  }) => {
+  const onTestCompleted = useCallback((result: TestResult) => {
     setUtilisateur(result.utilisateur);
+    setLastTestResult(result);
+    setLastDominantLabel(result.dominantLabel);
     const top3Texte = result.top3
       .map((t) => `• **${t.label}** (${t.score}/20) — ${t.description}`)
       .join("\n");
@@ -413,9 +440,11 @@ export function ChatInterface() {
       intention: "demande_test_riasec",
       actions: [
         { type: "proposer_recommandations", texte: "Voir mes recommandations", donnees: { trigger: "recommandations" } },
+        { type: "suggestion", texte: "Voir le radar détaillé", donnees: { message: "Montrez-moi mon profil complet" } },
       ],
     };
     setMessages((prev) => [...prev, botMsg]);
+    setShowResult(true);
   }, []);
 
   const onProfilSaved = useCallback((u: Utilisateur) => {
@@ -432,10 +461,91 @@ export function ChatInterface() {
     setMessages((prev) => [...prev, botMsg]);
   }, []);
 
+  const demarrerNouvelleConversation = useCallback(async () => {
+    if (!utilisateur) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/orientation/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ utilisateurId: utilisateur.id }),
+      });
+      if (!res.ok) throw new Error();
+      const newSession = await res.json();
+      setSession(newSession);
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ utilisateurId: utilisateur.id, sessionId: newSession.id })
+      );
+      setMessages([
+        {
+          id: uid(),
+          role: "bot",
+          content:
+            "🔄 **Nouvelle conversation démarrée**. Vos sessions précédentes sont conservées dans votre historique. Comment puis-je vous aider ?",
+          timestamp: new Date().toISOString(),
+          actions: [
+            { type: "suggestion", texte: "Voir mon profil", donnees: { message: "Montrez-moi mon profil" } },
+            { type: "suggestion", texte: "Mes recommandations", donnees: { message: "Donnez-moi des recommandations personnalisées" } },
+          ],
+        },
+      ]);
+      toast.success("Nouvelle conversation démarrée.");
+    } catch {
+      toast.error("Impossible de démarrer une nouvelle conversation.");
+    } finally {
+      setLoading(false);
+    }
+  }, [utilisateur]);
+
+  const reinitialiserProfil = useCallback(async () => {
+    if (!utilisateur) return;
+    if (!window.confirm("Voulez-vous vraiment réinitialiser votre profil et recommencer ? Cette action est irréversible.")) {
+      return;
+    }
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+      // Créer un nouvel utilisateur + session
+      const res = await fetch("/api/orientation/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setUtilisateur(data.utilisateur);
+      setSession(data.session);
+      setLastTestResult(null);
+      setLastRecommandations([]);
+      setLastDominantLabel(undefined);
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ utilisateurId: data.utilisateur.id, sessionId: data.session.id })
+      );
+      setMessages([
+        {
+          id: uid(),
+          role: "bot",
+          content:
+            "🔄 **Profil réinitialisé**. Bienvenue à nouveau sur OriensCI ! Pour bien vous accompagner, je vous propose de commencer par créer votre profil (niveau d'études, filière actuelle, localisation) puis de passer le test RIASEC.",
+          timestamp: new Date().toISOString(),
+          actions: [
+            { type: "demarrer_profil", texte: "Créer mon profil" },
+            { type: "suggestion", texte: "Passer le test RIASEC", donnees: { message: "Je veux passer le test RIASEC" } },
+          ],
+        },
+      ]);
+      toast.success("Profil réinitialisé avec succès.");
+    } catch {
+      toast.error("Impossible de réinitialiser le profil.");
+    }
+  }, [utilisateur]);
+
   const quickActions = [
     { label: "Créer mon profil", icon: ClipboardList, action: () => setShowProfile(true), color: "text-primary" },
     { label: "Passer le test RIASEC", icon: Compass, action: () => setShowTest(true), color: "text-accent-foreground" },
     { label: "Mes recommandations", icon: Sparkles, action: demanderRecommandations, color: "text-primary" },
+    { label: "Comparer les filières", icon: GitCompareArrows, action: () => setShowCompare(true), color: "text-foreground" },
     { label: "Liste des filières", icon: School, action: () => envoyerMessage("Quelles filières proposez-vous ?"), color: "text-foreground" },
     { label: "Liste des métiers", icon: Briefcase, action: () => envoyerMessage("Quels métiers proposez-vous ?"), color: "text-foreground" },
     { label: "Conseiller humain", icon: HeartHandshake, action: () => setShowCounselor(true), color: "text-destructive" },
@@ -473,6 +583,27 @@ export function ChatInterface() {
               <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
               {metiers.length} métiers · {filieres.length} filières
             </Badge>
+            {lastRecommandations.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowExport(true)}
+                className="hidden sm:flex text-xs h-8"
+                title="Exporter mes recommandations"
+              >
+                <FileDown className="h-3.5 w-3.5 mr-1" /> Exporter
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={demarrerNouvelleConversation}
+              aria-label="Nouvelle conversation"
+              className="h-9 w-9"
+              title="Nouvelle conversation"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -499,6 +630,15 @@ export function ChatInterface() {
                 <X className="h-4 w-4" />
               </Button>
             </div>
+
+            {/* Stepper d'onboarding */}
+            {utilisateur && (
+              <div className="mb-3 px-2 py-2.5 rounded-lg bg-card border border-border/60">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5 px-1">Progression</p>
+                <OnboardingStepper etape={calculerEtape(utilisateur)} />
+              </div>
+            )}
+
             {utilisateur && (
               <ProfileSummary
                 utilisateur={utilisateur}
@@ -506,6 +646,7 @@ export function ChatInterface() {
                 onPasserTest={() => { setShowTest(true); setSidebarOpen(false); }}
                 onRecommandations={() => { demanderRecommandations(); setSidebarOpen(false); }}
                 onConseiller={() => { setShowCounselor(true); setSidebarOpen(false); }}
+                onReset={reinitialiserProfil}
               />
             )}
 
@@ -540,7 +681,12 @@ export function ChatInterface() {
             >
               {messages.length === 0 && (
                 <div className="h-full flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">Chargement…</p>
+                  <div className="flex flex-col items-center gap-2 text-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent text-primary-foreground shadow-md animate-pulse">
+                      <Compass className="h-6 w-6" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">Chargement d'OriensCI…</p>
+                  </div>
                 </div>
               )}
               {messages.map((m) => (
@@ -660,6 +806,31 @@ export function ChatInterface() {
         utilisateurId={utilisateur?.id}
         sessionId={session?.id}
       />
+
+      {/* Dialog: résultats détaillés du test RIASEC */}
+      <RiasecResultDialog
+        open={showResult}
+        onOpenChange={setShowResult}
+        result={lastTestResult}
+        onRecommandations={demanderRecommandations}
+        onRepasser={() => { setShowResult(false); setShowTest(true); }}
+      />
+
+      {/* Dialog: comparateur de filières */}
+      <CompareFilieresDialog
+        open={showCompare}
+        onOpenChange={setShowCompare}
+        filieres={filieres}
+      />
+
+      {/* Dialog: export des recommandations */}
+      <ExportRecommandationsDialog
+        open={showExport}
+        onOpenChange={setShowExport}
+        utilisateur={utilisateur}
+        recommandations={lastRecommandations}
+        dominantLabel={lastDominantLabel}
+      />
     </div>
   );
 }
@@ -694,10 +865,25 @@ function MessageRow({
   onRecommandations: () => void;
 }) {
   const isUser = message.role === "user";
+  const time = new Date(message.timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
   return (
     <div className={`flex items-end gap-2 msg-in ${isUser ? "flex-row-reverse" : ""}`}>
       {isUser ? <UserAvatar /> : <BotAvatar />}
       <div className={`max-w-[85%] sm:max-w-[75%] ${isUser ? "items-end" : "items-start"} flex flex-col gap-1.5`}>
+        {/* Nom + horodatage */}
+        <div className={`flex items-center gap-1.5 text-[10px] text-muted-foreground ${isUser ? "flex-row-reverse" : ""}`}>
+          <span className="font-semibold">
+            {isUser ? "Vous" : "OriensCI"}
+          </span>
+          <span className="opacity-70">{time}</span>
+          {!isUser && message.intention && (
+            <Badge variant="outline" className="text-[9px] py-0 h-4 font-normal text-muted-foreground">
+              {NLU_INTENT_LABELS[message.intention] ?? message.intention}
+            </Badge>
+          )}
+        </div>
+
         <div
           className={`px-3 py-2 text-[13px] sm:text-sm leading-relaxed ${
             isUser ? "chat-bubble-user" : "chat-bubble-bot"
@@ -705,13 +891,6 @@ function MessageRow({
         >
           <MessageMarkdown text={message.content} />
         </div>
-
-        {/* Intention détectée (badge) */}
-        {!isUser && message.intention && (
-          <Badge variant="outline" className="text-[9px] py-0 h-4 font-normal text-muted-foreground">
-            {NLU_INTENT_LABELS[message.intention] ?? message.intention}
-          </Badge>
-        )}
 
         {/* Actions inline */}
         {!isUser && message.actions && message.actions.length > 0 && (
@@ -741,9 +920,13 @@ function ActionRenderer({
   onVoirFiliere: (id: string) => void;
   onRecommandations: () => void;
 }) {
+  // Séparer les suggestions (chips) des autres actions
+  const suggestions = actions.filter((a) => a.type === "suggestion");
+  const autres = actions.filter((a) => a.type !== "suggestion");
+
   return (
     <>
-      {actions.map((a, i) => {
+      {autres.map((a, i) => {
         if (a.type === "proposer_recommandations") {
           const recos = (a.donnees?.recommandations as RiasecRecoAffichage[] | undefined);
           const dominant = a.donnees?.dominant as RiasecDimension | undefined;
@@ -860,6 +1043,23 @@ function ActionRenderer({
           </Button>
         );
       })}
+
+      {/* Suggestion chips (quick replies) */}
+      {suggestions.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 max-w-md">
+          {suggestions.map((s, i) => (
+            <button
+              key={`sugg-${i}`}
+              type="button"
+              onClick={() => onAction(s)}
+              className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1.5 rounded-full border border-primary/40 bg-primary/5 text-primary hover:bg-primary hover:text-primary-foreground transition-all"
+            >
+              <MessageCircle className="h-3 w-3" />
+              {s.texte}
+            </button>
+          ))}
+        </div>
+      )}
     </>
   );
 }
