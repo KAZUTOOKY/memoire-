@@ -24,6 +24,32 @@ async function getZai() {
   return zaiInstance;
 }
 
+// Recherche web — utilise zai.functions.invoke('web_search')
+// Permet au LLM de vérifier/confirmer des infos factuelles sur internet.
+interface WebSearchResult {
+  url: string;
+  name: string;
+  snippet: string;
+  host_name: string;
+}
+
+async function chercherWeb(query: string, num = 4): Promise<WebSearchResult[]> {
+  try {
+    const zai = await getZai();
+    const results = await zai.functions.invoke("web_search", { query, num });
+    if (!Array.isArray(results)) return [];
+    return results.slice(0, num).map((r: WebSearchResult) => ({
+      url: r.url,
+      name: r.name,
+      snippet: r.snippet,
+      host_name: r.host_name,
+    }));
+  } catch (e) {
+    console.error("[LLM] web_search erreur:", e);
+    return [];
+  }
+}
+
 export interface LlmAction {
   type:
     | "profil_collecte"
@@ -34,7 +60,8 @@ export interface LlmAction {
     | "afficher_filiere"
     | "afficher_metier"
     | "information"
-    | "suggestion";
+    | "suggestion"
+    | "web_search";
   // données sérialisables renvoyées au client
   donnees?: Record<string, unknown>;
 }
@@ -44,6 +71,7 @@ export interface LlmResponse {
   actions: LlmAction[];
   profilMisAJour?: boolean;
   testProgress?: { current: number; total: number };
+  sourcesWeb?: Array<{ titre: string; url: string; extrait: string }>;
 }
 
 // Build the system prompt with all context
@@ -130,6 +158,10 @@ ${questionsRiasecList}
 5. **Digressions** : Si l'utilisateur dévie, réponds brièvement à sa question puis ramène-le avec douceur vers l'orientation ("Au fait, pour bien vous orienter...").
 6. **Recommandations** : Quand le test est terminé, propose de générer les recommandations.
 7. **Conseiller humain** : Si la demande dépasse tes capacités, propose la redirection vers un conseiller humain.
+8. **Recherche web (IMPORTANT)** : Si l'utilisateur pose une question factuelle qui nécessite des informations à jour ou que tu n'es pas sûr de la réponse (ex : dates de concours, salaires précis, établissements spécifiques, débouchés actuels, actualité), **DEMANDE UNE RECHERCHE WEB** en utilisant l'action "web_search". Le système effectuera la recherche sur internet et te renverra les résultats pour que tu puisse donner une réponse vérifiée et à jour. NE DONNE JAMAIS d'information factuelle dont tu n'es pas certain — demande plutôt une recherche web.
+   - Exemples de questions nécessitant une recherche : "Quelle est la date du concours INP-HB ?", "Quel est le salaire d'un médecin en Côte d'Ivoire ?", "Quelles écoles proposent le génie civil à Abidjan ?", "Quels sont les débouchés de l'agronomie en 2025 ?"
+   - Pour demander une recherche : action "web_search" avec donnees: { requete: "ta requête de recherche optimisée" }
+   - Quand tu reçois les résultats de recherche, cite les sources (nom du site) dans ta réponse.
 
 # FORMAT DE RÉPONSE (OBLIGATOIRE)
 Tu DOIS répondre en JSON valide uniquement, avec cette structure exacte :
@@ -153,6 +185,7 @@ Tu DOIS répondre en JSON valide uniquement, avec cette structure exacte :
 - "redirection_conseiller" : pour rediriger vers un conseiller humain. donnees: {}
 - "afficher_filiere" : pour afficher la fiche détaillée d'une filière. donnees: { nom: string }
 - "afficher_metier" : pour afficher la fiche d'un métier. donnees: { nom: string }
+- "web_search" : pour demander une recherche web (infos factuelles, à jour). donnees: { requete: string } — IMPORTANT : quand tu utilises cette action, mets juste un court message d'attente dans "reponse" (ex: "Je recherche cela sur internet..."). Le système relancera le LLM avec les résultats.
 - "suggestion" : pour proposer des réponses rapides. donnees: { message: string } (peut être multiple)
 - "information" : action neutre, juste du texte. donnees: {} (ou omis)
 
@@ -161,6 +194,7 @@ Tu DOIS répondre en JSON valide uniquement, avec cette structure exacte :
 - Question du test → action "test_riasec_question" avec l'énoncé
 - Test fini → action "test_riasec_termine"
 - User demande reco → action "recommandations_generees"
+- User demande info factuelle (date concours, salaire précis) → action "web_search" avec requete optimisée + message d'attente
 
 # IMPORTANT
 - Réponds TOUJOURS en JSON valide, sans texte avant ou après.
@@ -295,6 +329,52 @@ export async function gererChatLlm(input: LlmChatInput): Promise<LlmResponse> {
   let profilMisAJour = false;
   let testProgress: { current: number; total: number } | undefined;
   const finalActions: LlmAction[] = [];
+  let sourcesWeb: Array<{ titre: string; url: string; extrait: string }> | undefined;
+
+  // Vérifier si le LLM demande une recherche web
+  const webSearchAction = parsed.actions.find((a) => a.type === "web_search");
+  if (webSearchAction) {
+    const requete = (webSearchAction.donnees?.requete as string) || message;
+    // Exécuter la recherche web
+    const searchResults = await chercherWeb(requete, 4);
+    if (searchResults.length > 0) {
+      // Préparer le contexte de recherche pour le LLM
+      const searchContext = searchResults
+        .map((r, i) => `${i + 1}. ${r.name}\n   Source: ${r.host_name}\n   Extrait: ${r.snippet}\n   URL: ${r.url}`)
+        .join("\n\n");
+
+      // Relancer le LLM avec les résultats de recherche
+      const followUpMessages: Array<{ role: "assistant" | "user"; content: string }> = [
+        ...messages,
+        { role: "assistant", content: rawResponse }, // La réponse initiale du LLM
+        {
+          role: "user",
+          content: `Voici les résultats de la recherche web pour "${requete}" :\n\n${searchContext}\n\nUtilise ces résultats pour répondre à ma question initiale de manière précise et à jour. Cite les sources (nom du site) dans ta réponse. Réponds en JSON avec le même format qu'avant.`,
+        },
+      ];
+
+      try {
+        const zai2 = await getZai();
+        const completion2 = await zai2.chat.completions.create({
+          messages: followUpMessages,
+          thinking: { type: "disabled" },
+          stream: false,
+        });
+        const rawResponse2 = completion2.choices?.[0]?.message?.content ?? "";
+        const parsed2 = parseLlmResponse(rawResponse2);
+        // Remplacer la réponse par la réponse enrichie
+        parsed.reponse = parsed2.reponse;
+        parsed.actions = parsed2.actions.filter((a) => a.type !== "web_search");
+        sourcesWeb = searchResults.map((r) => ({
+          titre: r.name,
+          url: r.url,
+          extrait: r.snippet,
+        }));
+      } catch (e) {
+        console.error("[LLM] follow-up erreur:", e);
+      }
+    }
+  }
 
   // Process actions
   for (const action of parsed.actions) {
@@ -461,6 +541,7 @@ export async function gererChatLlm(input: LlmChatInput): Promise<LlmResponse> {
     actions: finalActions,
     profilMisAJour,
     testProgress,
+    sourcesWeb,
   };
 }
 

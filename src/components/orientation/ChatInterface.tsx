@@ -31,6 +31,7 @@ import {
   Brain,
   Sparkles as SparklesIcon,
   Bot,
+  Globe,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
@@ -311,6 +312,7 @@ export function ChatInterface() {
           timestamp: new Date().toISOString(),
           intention: "llm",
           actions,
+          sourcesWeb: data.sourcesWeb,
         };
         setMessages((prev) => [...prev, botMsg]);
 
@@ -1173,6 +1175,31 @@ function MessageRow({
             onVoirFiliere={onVoirFiliere}
             onRecommandations={onRecommandations}
           />
+        )}
+
+        {/* Sources web — affichées si la réponse a été enrichie par une recherche web */}
+        {!isUser && message.sourcesWeb && message.sourcesWeb.length > 0 && (
+          <div className="w-full max-w-md mt-1">
+            <div className="bg-muted/40 border border-border/60 rounded-lg p-2">
+              <p className="text-[10px] font-semibold text-muted-foreground flex items-center gap-1 mb-1">
+                <Globe className="h-3 w-3" /> Sources web ({message.sourcesWeb.length})
+              </p>
+              <div className="space-y-1">
+                {message.sourcesWeb.map((s, i) => (
+                  <a
+                    key={i}
+                    href={s.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-[10px] hover:underline"
+                  >
+                    <span className="font-medium text-primary">{s.titre}</span>
+                    <span className="text-muted-foreground ml-1">— {new URL(s.url).hostname}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Feedback buttons (👍/👎) — seulement pour les messages du bot avec du contenu */}

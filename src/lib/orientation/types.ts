@@ -109,6 +109,7 @@ export interface ChatMessage {
   intention?: string;
   confidence?: number;
   actions?: DialogueAction[];
+  sourcesWeb?: Array<{ titre: string; url: string; extrait: string }>;
 }
 
 export interface RiasecRecoAffichage {

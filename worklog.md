@@ -309,3 +309,29 @@ Verification (agent-browser) :
 Stage Summary:
 - Les 30 questions RIASEC sont maintenant posées dans l'ordre exact, sans répétition, sans improvisation.
 - Le LLM utilise la liste officielle fournie dans le system prompt.
+
+---
+Task ID: 17
+Agent: main (web search integration)
+Task: Intégrer la recherche web pour que le LLM vérifie/confirme sur internet avant de donner des réponses factuelles.
+
+Work Log:
+- **Skill web-search chargé** : documentation z-ai-web-dev-sdk `functions.invoke('web_search')` lue. Testé avec succès (recherche "concours INP-HB 2025" → résultats pertinents avec dates 2026).
+- **Fonction `chercherWeb()`** ajoutée à `llm-service.ts` : utilise `zai.functions.invoke('web_search', { query, num })`. Retourne tableau de résultats {url, name, snippet, host_name}.
+- **Nouveau type d'action `web_search`** : le LLM peut demander une recherche web via `donnees: { requete: string }`.
+- **System prompt mis à jour** : règle 8 ajoutée — "Si l'utilisateur pose une question factuelle nécessitant des infos à jour (dates concours, salaires précis, établissements, débouchés actuels), DEMANDE UNE RECHERCHE WEB. NE DONNE JAMAIS d'information factuelle dont tu n'es pas certain."
+- **Mécanisme à 2 passes** : si le LLM demande une recherche web → on exécute la recherche → on relance le LLM avec les résultats → le LLM donne une réponse enrichie et cite les sources.
+- **Affichage des sources** : `ChatMessage.sourcesWeb` ajouté. Les sources s'affichent sous le message du bot dans une carte avec icône Globe + liens cliquables (titre + hostname).
+- **Import Globe** : icône lucide-react ajoutée.
+
+Verification (curl + agent-browser) :
+- Test curl "Quelle est la date du concours INP-HB 2026?" → recherche web exécutée → réponse précise avec dates exactes (pré-inscription 02-22 juillet 2026, épreuves 13-18 avril 2026) + 4 sources citées (admission-bac.concours.inphb.app, erooamba.com, Facebook INP-HB, inphb.edu.ci). ✓
+- Test agent-browser "Quel est le salaire d un medecin en Cote d Ivoire?" → recherche web → salaires précis (534 213 FCFA net/mois médecin généraliste débutant, 609 213 FCFA spécialiste) + sources (Scribd, Facebook ConcoursCoteDivoire, Fonction Publique CI). ✓
+- Sources web affichées avec liens cliquables sous le message. ✓
+- 0 erreur console, lint propre. ✓
+- Screenshot : qa-web-search.png.
+
+Stage Summary:
+- Le LLM peut maintenant rechercher et confirmer sur internet avant de donner des réponses factuelles.
+- Mécanisme à 2 passes : LLM demande recherche → système exécute → LLM répond avec sources citées.
+- Plus de réponses fausses sur les infos factuelles (dates, salaires, établissements) — le LLM vérifie sur le web.
