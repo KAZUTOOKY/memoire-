@@ -148,7 +148,7 @@ ${metiersList}
 # RÈGLES DE CONVERSATION
 1. **Langue** : Tu parles en français, de manière chaleureuse et accessible (l'utilisateur est un jeune ivoirien).
 2. **Concision** : Réponses courtes (max 150 mots) sauf si l'utilisateur demande du détail.
-3. **Profil inline** : Si le niveau/filière/localisation est manquant, pose UNE question à la fois pour le récupérer, naturellement dans la conversation.
+3. **Profil inline (MISE À JOUR AUTOMATIQUE)** : Collecte TOUTES les infos de profil au fil de la conversation — niveau d'études, ville, filière souhaitée, filière actuelle, et personnalité (ambition, rythme, autonomie, style de travail, tolérance au stress). **Dès que l'utilisateur mentionne une de ces infos (même incidemment), génère immédiatement l'action "profil_collecte" correspondante** — le système sauvegarde automatiquement, sans confirmation. Ne redemande jamais une info déjà collectée. Pose UNE question à la fois si une info manque, naturellement dans la conversation.
 4. **Test RIASEC inline** : Si l'utilisateur n'a pas passé le test et que le moment est opportun (après le profil de base), propose de le passer. S'il accepte, pose les 30 affirmations **EXACTEMENT COMME LISTÉES CI-DESSOUS, DANS L'ORDRE, UNE PAR UNE**. Ne improvise JAMAIS de questions — utilise UNIQUEMENT les 30 affirmations officielles. **IMPORTANT : inclus TOUJOURS l'énoncé complet de l'affirmation dans le champ "reponse" de ton JSON** (ne dis pas juste "voici la question" — écris l'affirmation en entier). Pour chaque affirmation, demande à l'utilisateur d'indiquer son niveau d'accord (0 = pas du tout d'accord, 1 = plutôt en désaccord, 2 = neutre, 3 = plutôt d'accord, 4 = tout à fait d'accord). Accepte aussi les réponses en langage naturel ("d'accord", "pas d'accord", "oui", "non", "tout à fait"). Après chaque réponse, passe à la question suivante SANS répéter les questions précédentes. Quand les 30 sont répondues, déclenche l'action "test_riasec_termine".
 
 ## LES 30 QUESTIONS RIASEC OFFICIELLES (à poser DANS L'ORDRE, sans modification)
@@ -178,7 +178,17 @@ Tu DOIS répondre en JSON valide uniquement, avec cette structure exacte :
 \`\`\`
 
 ## Types d'actions possibles :
-- "profil_collecte" : quand tu as récupéré une info de profil. donnees: { champ: "niveauEtudes"|"localisation"|"filiereSouhaitee", valeur: string }
+- "profil_collecte" : quand tu as récupéré une info de profil. donnees: { champ, valeur }. **Le système sauvegarde automatiquement chaque info en base — tu n'as rien à gérer.** Champs possibles :
+  - "niveauEtudes" (string) : "Terminale", "Licence 1", "Bac obtenu", etc.
+  - "localisation" (string) : ville ("Abidjan", "Bouaké", "Yamoussoukro", etc.)
+  - "filiereSouhaitee" (string) : filière qui intéresse l'utilisateur ("Informatique", "Médecine", etc.)
+  - "filiereActuelle" (string) : filière actuelle de l'utilisateur (nom exact d'une filière de la base)
+  - "ambition" (string 1-5) : niveau d'ambition (1=prudent, 5=très ambitieux)
+  - "rythme" (string 1-5) : rythme de travail préféré (1=lent, 5=rapide)
+  - "autonomie" (string 1-5) : niveau d'autonomie (1=encadré, 5=très autonome)
+  - "toleranceStress" (string 1-5) : tolérance au stress (1=faible, 5=élevée)
+  - "styleTravail" (string) : "solo", "equipe", ou "mixte"
+  - **IMPORTANT** : Dès que l'utilisateur mentionne une de ces infos (même incidemment dans la conversation), génère l'action "profil_collecte" correspondante. Le profil se met à jour automatiquement. Ne demande pas confirmation — sauvegarde directement.
 - "test_riasec_question" : quand tu poses une question du test. donnees: { ordre: number (1-30), dimension: "R"|"I"|"A"|"S"|"E"|"C", enonce: string }
 - "test_riasec_termine" : quand les 30 questions sont répondues. donnees: {} (le système calculera les scores)
 - "recommandations_generees" : pour déclencher la génération de recommandations. donnees: {}
@@ -205,12 +215,43 @@ Tu DOIS répondre en JSON valide uniquement, avec cette structure exacte :
 }
 
 // Extract profile info from the LLM response (action profil_collecte)
-async function applyProfilCollecte(utilisateurId: string, champ: string, valeur: string) {
+// Met à jour le profil automatiquement à chaque info reçue.
+async function applyProfilCollecte(utilisateurId: string, champ: string, valeur: string): Promise<boolean> {
   const data: Record<string, unknown> = {};
+
+  // Champs de profil de base
   if (champ === "niveauEtudes") data.niveauEtudes = valeur;
   else if (champ === "localisation") data.localisation = valeur;
   else if (champ === "filiereSouhaitee") data.filiereSouhaitee = valeur;
-  else return false;
+  // Filière actuelle : le LLM peut donner le nom, on cherche l'ID
+  else if (champ === "filiereActuelle") {
+    const f = await db.filiere.findFirst({ where: { nom: { equals: valeur } } });
+    if (f) data.filiereActuelleId = f.id;
+    else return false;
+  }
+  // Champs de personnalité (échelle 1-5 ou string)
+  else if (champ === "ambition") {
+    const n = parseInt(valeur);
+    if (n >= 1 && n <= 5) data.ambition = n;
+    else return false;
+  } else if (champ === "rythme") {
+    const n = parseInt(valeur);
+    if (n >= 1 && n <= 5) data.rythme = n;
+    else return false;
+  } else if (champ === "autonomie") {
+    const n = parseInt(valeur);
+    if (n >= 1 && n <= 5) data.autonomie = n;
+    else return false;
+  } else if (champ === "toleranceStress") {
+    const n = parseInt(valeur);
+    if (n >= 1 && n <= 5) data.toleranceStress = n;
+    else return false;
+  } else if (champ === "styleTravail") {
+    if (["solo", "equipe", "mixte"].includes(valeur)) data.styleTravail = valeur;
+    else return false;
+  } else {
+    return false;
+  }
 
   await db.utilisateur.update({ where: { id: utilisateurId }, data });
   return true;
@@ -380,9 +421,30 @@ export async function gererChatLlm(input: LlmChatInput): Promise<LlmResponse> {
   for (const action of parsed.actions) {
     switch (action.type) {
       case "profil_collecte": {
-        const champ = action.donnees?.champ as string;
-        const valeur = action.donnees?.valeur as string;
-        if (champ && valeur) {
+        // Le LLM peut renvoyer 2 formats :
+        // 1. { champ: "niveauEtudes", valeur: "Terminale D" }
+        // 2. { niveauEtudes: "Terminale D", localisation: "Abidjan", ambition: "5" } (plusieurs champs d'un coup)
+        const donnees = action.donnees ?? {};
+        const champsCollectes: Array<{ champ: string; valeur: string }> = [];
+
+        if (donnees.champ && donnees.valeur) {
+          // Format 1 : un seul champ
+          champsCollectes.push({ champ: donnees.champ as string, valeur: donnees.valeur as string });
+        } else {
+          // Format 2 : plusieurs champs directement dans donnees
+          const champsPossibles = [
+            "niveauEtudes", "localisation", "filiereSouhaitee", "filiereActuelle",
+            "ambition", "rythme", "autonomie", "toleranceStress", "styleTravail",
+          ];
+          for (const c of champsPossibles) {
+            if (donnees[c] !== undefined && donnees[c] !== null && donnees[c] !== "") {
+              champsCollectes.push({ champ: c, valeur: String(donnees[c]) });
+            }
+          }
+        }
+
+        // Appliquer chaque champ collecté
+        for (const { champ, valeur } of champsCollectes) {
           const ok = await applyProfilCollecte(utilisateurId, champ, valeur);
           if (ok) profilMisAJour = true;
         }

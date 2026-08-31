@@ -335,3 +335,37 @@ Stage Summary:
 - Le LLM peut maintenant rechercher et confirmer sur internet avant de donner des réponses factuelles.
 - Mécanisme à 2 passes : LLM demande recherche → système exécute → LLM répond avec sources citées.
 - Plus de réponses fausses sur les infos factuelles (dates, salaires, établissements) — le LLM vérifie sur le web.
+
+---
+Task ID: 18
+Agent: main (auto profile update)
+Task: Le profil doit se mettre à jour automatiquement au fur et à mesure que le LLM reçoit les informations.
+
+Work Log:
+- **Problème identifié** : le LLM renvoyait les infos de profil dans un format différent de ce que `applyProfilCollecte` attendait. Le LLM mettait tous les champs directement dans `donnees` (ex: `{ niveauEtudes: "Terminale D", localisation: "Abidjan", ambition: "5" }`) au lieu du format `{ champ, valeur }`.
+- **Fix `applyProfilCollecte`** : étendu pour gérer 9 champs au lieu de 3 :
+  - Base : niveauEtudes, localisation, filiereSouhaitee
+  - Filière actuelle : filiereActuelle (recherche l'ID par nom)
+  - Personnalité : ambition, rythme, autonomie, toleranceStress (1-5), styleTravail (solo/equipe/mixte)
+- **Fix traitement des actions `profil_collecte`** : supporte maintenant les 2 formats :
+  1. Format simple : `{ champ: "niveauEtudes", valeur: "Terminale D" }`
+  2. Format multi-champs : `{ niveauEtudes: "Terminale D", localisation: "Abidjan", ambition: "5" }` (le LLM collecte plusieurs infos d'un coup)
+- **System prompt mis à jour** :
+  - Règle 3 "Profil inline" renforcée : "Collecte TOUTES les infos de profil au fil de la conversation. Dès que l'utilisateur mentionne une info (même incidemment), génère immédiatement l'action profil_collecte. Le système sauvegarde automatiquement, sans confirmation. Ne redemande jamais une info déjà collectée."
+  - Liste complète des 9 champs collectables avec exemples de valeurs.
+  - Instruction : "Ne demande pas confirmation — sauvegarde directement."
+- **Frontend** : rafraîchit déjà `utilisateur` après chaque message (`fetch /api/orientation/users`), ce qui met à jour la sidebar (ProfileSummary, OnboardingStepper, StatsCard) en temps réel.
+
+Verification (curl + agent-browser) :
+- Test curl message 1 "Je suis en terminale D a Abidjan et je suis quelqu un de tres ambitieux" → Niveau=Terminale, Ville=Abidjan, Ambition=5. ✓
+- Test curl message 2 "Je prefere travailler en equipe et je veux faire medecine" → FiliereSouhaitee=Médecine, StyleTravail=equipe. ✓
+- Test agent-browser "Je suis en licence 2 a Bouake" → sidebar affiche immédiatement Niveau=Licence 2, Ville=Bouaké. ✓
+- Le profil se met à jour SANS confirmation, au fil de la conversation. ✓
+- 0 erreur console, lint propre. ✓
+- Screenshot : qa-auto-profile.png.
+
+Stage Summary:
+- Le profil se met à jour automatiquement en temps réel au fur et à mesure que le LLM reçoit les informations.
+- 9 champs collectables : niveau, ville, filière souhaitée, filière actuelle, + 5 traits de personnalité.
+- Le LLM collecte les infos incidemment dans la conversation (pas de formulaire) et le système sauvegarde immédiatement.
+- La sidebar (profil, stepper, stats) se rafraîchit en temps réel après chaque message.
