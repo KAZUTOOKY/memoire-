@@ -1,0 +1,176 @@
+// Prisma schema — OriensCI (Chatbot d'orientation académique et professionnelle)
+// 7 entités principales du mémoire + tables complémentaires (test RIASEC, conseiller)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// RG1 : un utilisateur a zéro ou une filière actuelle ; une filière peut concerner plusieurs utilisateurs.
+model Utilisateur {
+  id                   String      @id @default(cuid())
+  niveauEtudes         String?     // Terminale, Licence 1, Licence 2, Licence 3, etc.
+  filiereActuelleId    String?     // RG1
+  // Scores RIASEC (6 dimensions)
+  scoreRealiste        Int         @default(0)
+  scoreInvestigateur   Int         @default(0)
+  scoreArtistique      Int         @default(0)
+  scoreSocial          Int         @default(0)
+  scoreEntreprenant    Int         @default(0)
+  scoreConventionnel   Int         @default(0)
+  profilDominant       String?     // dimension RIASEC dominante (R/I/A/S/E/C)
+  localisation         String?     // ville / région de Côte d'Ivoire
+  dateCreation         DateTime    @default(now())
+
+  filiereActuelle      Filiere?    @relation("FiliereActuelle", fields: [filiereActuelleId], references: [id])
+  sessions             Session[]
+
+  @@map("utilisateur")
+}
+
+model Filiere {
+  id                       String   @id @default(cuid())
+  nom                      String
+  description              String?
+  // Profil RIASEC cible de la filière
+  profilRealiste           Int      @default(0)
+  profilInvestigateur      Int      @default(0)
+  profilArtistique         Int      @default(0)
+  profilSocial             Int      @default(0)
+  profilEntreprenant       Int      @default(0)
+  profilConventionnel      Int      @default(0)
+  conditionsAcces          String?  // RG : conditions d'accès (bac, filière, etc.)
+  etablissementsDisponibles String? // établissements ivoiriens (séparés par |)
+  duree                    String?  // durée de la formation
+  debouchesText            String?  // débouchés résumés
+  domaines                 String?  // mots-clés de domaine (séparés par |)
+
+  utilisateurs             Utilisateur[] @relation("FiliereActuelle")
+  metiers                  FiliereMetier[]
+
+  @@map("filiere")
+}
+
+model Metier {
+  id                  String   @id @default(cuid())
+  nom                 String
+  description         String?
+  // Profil RIASEC cible du métier
+  profilRealiste      Int      @default(0)
+  profilInvestigateur Int      @default(0)
+  profilArtistique    Int      @default(0)
+  profilSocial        Int      @default(0)
+  profilEntreprenant  Int      @default(0)
+  profilConventionnel Int      @default(0)
+  secteurActivite     String?
+  descriptionDebouches String?
+  salaireMoyen        String?  // contexte ivoirien
+  competencesCles     String?  // séparées par |
+  niveauMinimum       String?  // niveau d'études minimum requis
+
+  filieres            FiliereMetier[]
+  recommandations     Recommandation[]
+
+  @@map("metier")
+}
+
+/// RG2 : une filière peut mener à plusieurs métiers ; un métier peut être accessible depuis plusieurs filières.
+model FiliereMetier {
+  filiereId String
+  metierId  String
+
+  filiere   Filiere @relation(fields: [filiereId], references: [id], onDelete: Cascade)
+  metier    Metier  @relation(fields: [metierId], references: [id], onDelete: Cascade)
+
+  @@id([filiereId, metierId])
+  @@map("filiere_metier")
+}
+
+/// RG3 : un utilisateur peut avoir plusieurs sessions ; une session appartient à un seul utilisateur.
+model Session {
+  id            String    @id @default(cuid())
+  utilisateurId String
+  dateDebut     DateTime  @default(now())
+  dateFin       DateTime?
+  statut        String    @default("active") // active, terminee
+
+  utilisateur   Utilisateur @relation(fields: [utilisateurId], references: [id], onDelete: Cascade)
+  interactions  Interaction[]
+  recommandations Recommandation[]
+
+  @@map("session")
+}
+
+model Intention {
+  id      String @id @default(cuid())
+  libelle String @unique // salutation, recherche_filiere, recherche_metier, demande_debouches, etc.
+  description String?
+
+  interactions Interaction[]
+
+  @@map("intention")
+}
+
+/// RG4 : une session contient plusieurs interactions ; une interaction appartient à une seule session.
+/// RG5 : une interaction porte sur une seule intention ; une intention peut concerner plusieurs interactions.
+model Interaction {
+  id               String    @id @default(cuid())
+  sessionId        String
+  intentionId      String?
+  dateHeure        DateTime  @default(now())
+  messageUtilisateur String?
+  reponseSysteme   String?
+  metadata         String?   // JSON sérialisé (infos complémentaires)
+
+  session          Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  intention        Intention?  @relation(fields: [intentionId], references: [id])
+
+  @@map("interaction")
+}
+
+/// RG6 : une session peut générer plusieurs recommandations ; une recommandation appartient à une seule session.
+/// RG7 : un métier peut faire l'objet de plusieurs recommandations ; une recommandation concerne un seul métier.
+model Recommandation {
+  id                 String   @id @default(cuid())
+  sessionId          String
+  metierId           String
+  scoreCompatibilite Float    // 0..1
+  justification      String
+  dateGeneration     DateTime @default(now())
+
+  session            Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  metier             Metier   @relation(fields: [metierId], references: [id], onDelete: Cascade)
+
+  @@map("recommandation")
+}
+
+// --- Tables complémentaires (non dans le schéma initial mais utiles au prototype) ---
+
+/// Questions du test RIASEC (modèle de Holland).
+model QuestionRiasec {
+  id        String @id @default(cuid())
+  dimension String // R, I, A, S, E, C
+  ordre     Int
+  enonce    String
+
+  @@map("question_riasec")
+}
+
+/// Demandes de redirection vers un conseiller humain.
+model DemandeConseiller {
+  id           String   @id @default(cuid())
+  sessionId    String?
+  utilisateurId String?
+  nom          String?
+  contact      String?  // téléphone ou email
+  motif        String
+  urgence      String   @default("normale") // normale, elevee
+  traitee      Boolean  @default(false)
+  dateDemande  DateTime @default(now())
+
+  @@map("demande_conseiller")
+}
